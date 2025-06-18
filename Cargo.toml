@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/text_buffer",
+    "crates/markdown_parser",
+    "crates/link_graph",
+    "crates/ui",
+    "crates/rope",
+    "crates/mditor",
+]
