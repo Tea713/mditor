@@ -1,7 +1,8 @@
 mod node;
 
-use node::{Leaf, Node};
+use node::{Branch, Leaf, Node};
 use std::fmt;
+use std::ops::Range;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -11,10 +12,9 @@ pub struct Rope {
 
 impl Rope {
     pub fn new() -> Self {
-        let leaf = Leaf::new();
-        Rope {
-            root: Rc::new(Node::from(leaf)),
-        }
+        let leaves = Leaf::split_text_to_leaves("");
+        let root = Rc::clone(Branch::create_root(&leaves).first().unwrap());
+        Rope { root }
     }
 
     pub fn len(&self) -> usize {
@@ -30,20 +30,18 @@ impl Rope {
         if index > len {
             return Err(InsertError::OutOfBounds { index, len });
         }
-        self.root = self.root.insert(index, text);
+        let branches = self.root.insert(index, text);
+        self.root = Rc::clone(&Branch::create_root(&branches).first().unwrap());
         Ok(())
     }
 
-    pub fn delete(&mut self, left_index: usize, right_index: usize) -> Result<(), DeleteError> {
+    pub fn delete(&mut self, range: Range<usize>) -> Result<(), DeleteError> {
         let len = self.len();
-        if left_index > right_index || right_index >= len {
-            return Err(DeleteError::OutOfBounds {
-                left_index,
-                right_index,
-                len,
-            });
+        if range.end > len {
+            return Err(DeleteError::OutOfBounds { range, len });
         }
-        self.root = self.root.delete(left_index, right_index);
+        let branches = self.root.delete(range);
+        self.root = Rc::clone(&Branch::create_root(&branches).first().unwrap());
         Ok(())
     }
 
@@ -52,23 +50,13 @@ impl Rope {
         self.root.write_to(&mut buf);
         buf
     }
-
-    // TODO: reimplement balancing for better performance
-    pub fn is_balanced(&self) -> bool {
-        self.root.is_balanced()
-    }
-
-    pub fn rebalanced(&self) -> Rope {
-        let concatnated: &str = &self.to_string();
-        Rope::from(concatnated)
-    }
 }
 
 impl From<&str> for Rope {
     fn from(text: &str) -> Self {
-        let mut rope = Self::new();
-        rope.insert(0, text).unwrap();
-        rope
+        let leaves = Leaf::split_text_to_leaves(text);
+        let root = Rc::clone(Branch::create_root(&leaves).first().unwrap());
+        Rope { root }
     }
 }
 
@@ -85,11 +73,7 @@ pub enum InsertError {
 
 #[derive(Debug)]
 pub enum DeleteError {
-    OutOfBounds {
-        left_index: usize,
-        right_index: usize,
-        len: usize,
-    },
+    OutOfBounds { range: Range<usize>, len: usize },
 }
 
 #[cfg(test)]
@@ -134,28 +118,28 @@ mod tests {
     #[test]
     fn delete_at_beginning() {
         let mut rope = Rope::from("Hello world!");
-        rope.delete(0, 5).unwrap();
+        rope.delete(0..6).unwrap();
         assert_eq!(rope.to_string(), "world!");
     }
 
     #[test]
     fn delete_at_end() {
         let mut rope = Rope::from("Hello world!");
-        rope.delete(5, 11).unwrap();
+        rope.delete(5..12).unwrap();
         assert_eq!(rope.to_string(), "Hello");
     }
 
     #[test]
     fn delete_in_middle() {
         let mut rope = Rope::from("Hello beautiful world!");
-        rope.delete(6, 15).unwrap();
+        rope.delete(6..16).unwrap();
         assert_eq!(rope.to_string(), "Hello world!");
     }
 
     #[test]
     fn delete_then_insert() {
         let mut rope = Rope::from("Hello beautiful world!");
-        rope.delete(6, 20).unwrap();
+        rope.delete(6..21).unwrap();
         rope.insert(6, "world").unwrap();
         assert_eq!(rope.to_string(), "Hello world!");
     }
@@ -164,20 +148,7 @@ mod tests {
     fn insert_and_delete() {
         let mut rope = Rope::from("Hello");
         rope.insert(5, " world!").unwrap();
-        rope.delete(5, 10).unwrap();
+        rope.delete(5..11).unwrap();
         assert_eq!(rope.to_string(), "Hello!");
-    }
-
-    #[test]
-    fn correct_height() {
-        let rope = Rope::from("Hello beaufitful world!");
-        assert_eq!(rope.height(), 3);
-    }
-
-    #[test]
-    fn correct_height_after_insert() {
-        let mut rope = Rope::from("Hello world!");
-        rope.insert(12, " And goodbye.").unwrap();
-        assert_eq!(rope.height(), 4);
     }
 }
