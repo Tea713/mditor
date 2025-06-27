@@ -221,11 +221,22 @@ impl Branch {
             return Self::create_parent_branches(&children);
         }
 
-        let mut children_of_children: Vec<Rc<Node>> = Vec::new();
-        for child in &children {
-            children_of_children.append(&mut child.children());
+        // TODO: replace bugged code intended to redistribute children
+
+        // let mut children_of_children: Vec<Rc<Node>> = Vec::new();
+        // for child in &children {
+        //     children_of_children.append(&mut child.children());
+        // }
+        // children = Self::create_parent_branches(&children_of_children);
+        // Self::create_parent_branches(&children)
+
+        if children.is_empty() {
+            return Vec::new();
         }
-        children = Self::create_parent_branches(&children_of_children);
+        if children.first().unwrap().is_leaf() {
+            return Self::create_parent_branches(&children);
+        }
+
         Self::create_parent_branches(&children)
     }
 }

@@ -462,4 +462,38 @@ mod tests {
         let result = rope.to_string();
         assert_eq!(result.len(), rope.len());
     }
+
+    #[test]
+    fn a_bunch_of_operations() {
+        let text = "djfh;ldjhfak93[ 21i pejk;lkwen c;msdnf;ow
+            en 3krj;l2k3  v 234 234312333523
+            4]34 vjkdjl;k  pw3rpioj2[p3oij4bnbxlwer]sdj; lk23,";
+        let mut rope = Rope::from(text);
+        let mut string = String::from(text);
+
+        let mut to_insert = "lkdajs;ldij34   2ij3;l12nnn
+                    mdfn.ln erewr werereeee  erernnnnn nermwnernnnmewrn
+                    asdkjlkw3jpuidpqw
+                    ksckwke daskjdlkajsre dsfkr";
+
+        rope.insert(6, to_insert).unwrap();
+        string.insert_str(6, to_insert);
+        assert_eq!(rope.to_string(), string);
+
+        rope.delete(6..16).unwrap();
+        string.replace_range(6..16, "");
+        assert_eq!(rope.to_string(), string);
+
+        to_insert = " asdasdccc     w3qrdw
+            asjdhlkhff
+            g  gfgfgg rteroi";
+
+        rope.delete(25..39).unwrap();
+        string.replace_range(25..39, "");
+        assert_eq!(rope.to_string(), string);
+
+        rope.insert(45, to_insert).unwrap();
+        string.insert_str(45, to_insert);
+        assert_eq!(rope.to_string(), string);
+    }
 }
