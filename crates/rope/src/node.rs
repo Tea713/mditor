@@ -57,9 +57,8 @@ impl Node {
                 }
                 let mut root = Rc::clone(node_list.first().unwrap());
                 if root.len() == 0 {
-                    let leaves = Leaf::split_text_to_leaves("");
-                    let empty = Rc::clone(Branch::create_root(&leaves).first().unwrap());
-                    return vec![empty];
+                    let empty_leaf = Rc::new(Node::Leaf(Leaf::from("")));
+                    return vec![empty_leaf];
                 }
                 let mut children = root.children();
                 let mut first_child = Rc::clone(children.first().unwrap());
