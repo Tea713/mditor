@@ -52,6 +52,9 @@ impl Node {
         match self {
             Self::Branch(branch) => {
                 let node_list = branch.delete(range);
+                if node_list.is_empty() {
+                    return Vec::new();
+                }
                 let mut root = Rc::clone(node_list.first().unwrap());
                 if root.len() == 0 {
                     let leaves = Leaf::split_text_to_leaves("");
@@ -207,12 +210,18 @@ impl Branch {
             let mut altered = altered_node.delete(range_in_child.clone());
             altered_children.append(&mut altered);
         }
+
         let start = to_delete.first().unwrap().0;
         let end = to_delete.last().unwrap().0;
         children.splice(start..=end, altered_children);
+
+        if children.is_empty() {
+            return Vec::new();
+        }
         if children.first().unwrap().is_leaf() {
             return Self::create_parent_branches(&children);
         }
+
         let mut children_of_children: Vec<Rc<Node>> = Vec::new();
         for child in &children {
             children_of_children.append(&mut child.children());
