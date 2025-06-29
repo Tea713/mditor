@@ -17,6 +17,7 @@ impl Node {
             Self::Leaf(_) => true,
         }
     }
+
     pub fn len(&self) -> usize {
         match self {
             Self::Branch(branch) => branch.len(),
@@ -38,71 +39,33 @@ impl Node {
         }
     }
 
-    pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
+    pub fn insert(&self, index: usize, text: &str) -> Rc<Node> {
+        let nodes = self.insert_recursive(index, text);
+        return Rc::clone(Self::create_root(&nodes).first().unwrap());
+    }
+
+    pub fn insert_recursive(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
         match self {
-            Self::Branch(branch) => {
-                let branches = branch.insert(index, text);
-                Branch::create_root(&branches)
-            }
+            Self::Branch(branch) => branch.insert(index, text),
             Self::Leaf(leaf) => leaf.insert(index, text),
         }
     }
 
-    pub fn delete(&self, range: Range<usize>) -> Vec<Rc<Node>> {
+    pub fn delete(&self, range: Range<usize>) -> Rc<Node> {
+        let nodes = self.delete_recursive(range);
+        let truncated = Node::truncate_root(&nodes);
+        let root = truncated.first().unwrap();
+        Rc::clone(&root)
+    }
+
+    pub fn delete_recursive(&self, range: Range<usize>) -> Vec<Rc<Node>> {
         match self {
-            Self::Branch(branch) => {
-                let node_list = branch.delete(range);
-                if node_list.is_empty() {
-                    return Vec::new();
-                }
-                let mut root = Rc::clone(node_list.first().unwrap());
-                if root.len() == 0 {
-                    let empty_leaf = Rc::new(Node::Leaf(Leaf::from("")));
-                    return vec![empty_leaf];
-                }
-                let mut children = root.children();
-                let mut first_child = Rc::clone(children.first().unwrap());
-                while !first_child.is_leaf() && children.len() == 1 {
-                    root = Rc::clone(&first_child);
-                    children = root.children();
-                    first_child = Rc::clone(children.first().unwrap());
-                }
-                vec![Rc::clone(&root)]
-            }
+            Self::Branch(branch) => branch.delete(range),
             Self::Leaf(leaf) => leaf.delete(range),
         }
     }
 
-    pub fn write_to(&self, buf: &mut String) {
-        match self {
-            Self::Branch(branch) => {
-                for child in branch.children.clone() {
-                    child.write_to(buf);
-                }
-            }
-            Self::Leaf(leaf) => buf.push_str(leaf.as_str()),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Branch {
-    height: usize,
-    length: usize,
-    keys: Vec<usize>,
-    children: Vec<Rc<Node>>,
-}
-
-impl Branch {
-    pub fn height(&self) -> usize {
-        self.height
-    }
-
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    // create parent branch(es) for a bunch of branches
+    // create parent branch(es) for node(s)
     pub fn create_parent_branches(children: &Vec<Rc<Node>>) -> Vec<Rc<Node>> {
         let mut parents: Vec<Rc<Node>> = Vec::new();
 
@@ -136,7 +99,7 @@ impl Branch {
         parents
     }
 
-    //create parent branches recursively to get a root
+    // create parent branches recursively to get a singular root as the first element of the returned vector
     pub fn create_root(nodes: &Vec<Rc<Node>>) -> Vec<Rc<Node>> {
         if nodes.is_empty() {
             return Vec::new();
@@ -144,8 +107,87 @@ impl Branch {
         if nodes.len() == 1 {
             return nodes.clone();
         }
-        let parents = Branch::create_parent_branches(&nodes.clone());
-        return Branch::create_root(&parents);
+        let parents = Node::create_parent_branches(&nodes);
+        return Node::create_root(&parents);
+    }
+
+    // remove nodes that are not necessary for the tree to have all of its data by traversing to the left. Return the real root as the first element
+    pub fn truncate_root(nodes: &Vec<Rc<Node>>) -> Vec<Rc<Node>> {
+        if nodes.is_empty() {
+            return vec![Rc::new(Node::Leaf(Leaf::new()))];
+        }
+        let root = Rc::clone(nodes.first().unwrap());
+        if root.is_leaf() {
+            return vec![Rc::clone(&root)];
+        }
+        let children = root.children();
+        if children.len() > 1 {
+            return vec![root];
+        }
+        return Node::truncate_root(&children);
+    }
+
+    pub fn write_to(&self, buf: &mut String) {
+        match self {
+            Self::Branch(branch) => {
+                for child in branch.children.clone() {
+                    child.write_to(buf);
+                }
+            }
+            Self::Leaf(leaf) => buf.push_str(leaf.as_str()),
+        }
+    }
+
+    // Just a help function to make sure a leaves are at the same height
+    pub fn check_leaves_same_depths(&self) -> Result<(), String> {
+        let mut leaf_depths = Vec::new();
+        self.collect_leaf_depths(&mut leaf_depths, 1);
+
+        if leaf_depths.is_empty() {
+            return Ok(());
+        }
+
+        let first_height = leaf_depths[0];
+        if leaf_depths.iter().all(|&height| height == first_height) {
+            Ok(())
+        } else {
+            let min_height = *leaf_depths.iter().min().unwrap();
+            let max_height = *leaf_depths.iter().max().unwrap();
+            Err(format!(
+                "Leaves at inconsistent heights: min={}, max={}, found heights: {:?}",
+                min_height, max_height, leaf_depths
+            ))
+        }
+    }
+
+    // Helper of that help function above
+    fn collect_leaf_depths(&self, depths: &mut Vec<usize>, curr_depth: usize) {
+        match self {
+            Self::Leaf(_) => depths.push(curr_depth),
+            Self::Branch(branch) => {
+                for child in &branch.children {
+                    child.collect_leaf_depths(depths, curr_depth + 1);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Branch {
+    height: usize,
+    length: usize,
+    keys: Vec<usize>,
+    children: Vec<Rc<Node>>,
+}
+
+impl Branch {
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn len(&self) -> usize {
+        self.length
     }
 
     // return the index of the child and the real index in the child
@@ -183,31 +225,39 @@ impl Branch {
         result
     }
 
+    // recursively find the correct child to insert into and create new nodes while keeping unaffected nodes
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
         let (insert_index, index_in_child) = self.find_child_by_index(index);
         let mut children = self.children.clone();
         let inserted_node = Rc::clone(&children[insert_index]);
 
-        let new_children = inserted_node.insert(index_in_child, text);
+        let new_children = inserted_node.insert_recursive(index_in_child, text);
         children.splice(insert_index..=insert_index, new_children);
 
-        Self::create_parent_branches(&children)
+        Node::create_parent_branches(&children)
     }
 
+    // recursively find the correct children to delete and keep unaffected nodes
     pub fn delete(&self, range: Range<usize>) -> Vec<Rc<Node>> {
+        let mut children = self.children.clone();
+
+        // The previous recursion call likely deleted everything in this branch
+        if children.is_empty() {
+            return Vec::new();
+        }
+
         let to_delete = self.find_children_by_range(range);
 
         if to_delete.is_empty() {
-            return Self::create_parent_branches(&self.children);
+            return Node::create_parent_branches(&self.children);
         }
 
-        let mut children = self.children.clone();
         let mut altered_children: Vec<Rc<Node>> = Vec::new();
 
         for (pos, range_in_child) in &to_delete {
             let altered_node = Rc::clone(&children[*pos]);
-            let mut altered = altered_node.delete(range_in_child.clone());
-            altered_children.append(&mut altered);
+            let altered = altered_node.delete_recursive(range_in_child.clone());
+            altered_children.extend(altered);
         }
 
         let start = to_delete.first().unwrap().0;
@@ -217,27 +267,25 @@ impl Branch {
         if children.is_empty() {
             return Vec::new();
         }
+
+        // No need to check if the children of the current is filled less than half its max capacity when children are leaves
         if children.first().unwrap().is_leaf() {
-            return Self::create_parent_branches(&children);
+            return Node::create_parent_branches(&children);
         }
 
-        // TODO: replace bugged code intended to redistribute children
-
-        // let mut children_of_children: Vec<Rc<Node>> = Vec::new();
-        // for child in &children {
-        //     children_of_children.append(&mut child.children());
-        // }
-        // children = Self::create_parent_branches(&children_of_children);
-        // Self::create_parent_branches(&children)
-
-        if children.is_empty() {
-            return Vec::new();
+        let mut need_restructure = false;
+        let mut grandchildren: Vec<Rc<Node>> = Vec::new();
+        for child in &children {
+            grandchildren.extend(child.children());
+            if child.children().len() < TREE_ORDER / 2 {
+                need_restructure = true;
+            }
         }
-        if children.first().unwrap().is_leaf() {
-            return Self::create_parent_branches(&children);
+        if need_restructure {
+            children = Node::create_parent_branches(&grandchildren);
         }
 
-        Self::create_parent_branches(&children)
+        Node::create_parent_branches(&children)
     }
 }
 
@@ -266,6 +314,12 @@ impl From<&str> for Leaf {
 }
 
 impl Leaf {
+    pub fn new() -> Self {
+        Leaf {
+            chunk: String::new(),
+        }
+    }
+
     pub fn as_str(&self) -> &str {
         &self.chunk
     }

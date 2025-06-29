@@ -1,6 +1,6 @@
 mod node;
 
-use node::{Branch, Leaf, Node};
+use node::{Leaf, Node};
 use std::fmt;
 use std::ops::Range;
 use std::rc::Rc;
@@ -29,11 +29,7 @@ impl Rope {
         if index > len {
             return Err(InsertError::OutOfBounds { index, len });
         }
-        let branches = self.root.insert(index, text);
-        match Branch::create_root(&branches).first() {
-            Some(node) => self.root = Rc::clone(&node),
-            None => self.root = Rc::new(Node::Leaf(Leaf::from(""))),
-        }
+        self.root = self.root.insert(index, text);
         Ok(())
     }
 
@@ -42,11 +38,7 @@ impl Rope {
         if range.end > len {
             return Err(DeleteError::OutOfBounds { range, len });
         }
-        let branches = self.root.delete(range);
-        match Branch::create_root(&branches).first() {
-            Some(node) => self.root = Rc::clone(&node),
-            None => self.root = Rc::new(Node::Leaf(Leaf::from(""))),
-        }
+        self.root = self.root.delete(range);
         Ok(())
     }
 
@@ -63,7 +55,7 @@ impl From<&str> for Rope {
             return Rope::new();
         }
         let leaves = Leaf::split_text_to_leaves(text);
-        let root = Rc::clone(Branch::create_root(&leaves).first().unwrap());
+        let root = Rc::clone(Node::create_root(&leaves).first().unwrap());
         Rope { root }
     }
 }
@@ -228,11 +220,9 @@ mod tests {
     fn empty_range_delete() {
         let mut rope = Rope::from("Hello");
 
-        // Delete empty range
         rope.delete(2..2).unwrap();
         assert_eq!(rope.to_string(), "Hello");
 
-        // Delete at end
         rope.delete(5..5).unwrap();
         assert_eq!(rope.to_string(), "Hello");
     }
@@ -271,7 +261,6 @@ mod tests {
         let large_text = "a".repeat(1000);
         let mut rope = Rope::from(large_text.as_str());
 
-        // Delete most of it
         rope.delete(100..900).unwrap();
 
         let expected = "a".repeat(100) + &"a".repeat(100);
@@ -302,7 +291,6 @@ mod tests {
         rope.insert(0, "Family: ").unwrap();
         assert_eq!(rope.len(), original_len + "Family: ".len());
 
-        // Make sure the emoji is still intact
         assert!(rope.to_string().contains("👨‍👩‍👧‍👦"));
     }
 
@@ -323,7 +311,6 @@ mod tests {
         let text = "x".repeat(100);
         let mut rope = Rope::from(text.as_str());
 
-        // Delete from the end, one character at a time
         for i in (0..100).rev() {
             rope.delete(i..i + 1).unwrap();
         }
@@ -337,11 +324,9 @@ mod tests {
         let mut rope = Rope::from("base");
 
         for _ in 0..50 {
-            // Insert
             rope.insert(2, "xx").unwrap();
             assert!(rope.len() >= 4);
 
-            // Delete part of what we just inserted
             if rope.len() > 4 {
                 rope.delete(2..3).unwrap();
             }
@@ -366,15 +351,13 @@ mod tests {
 
     #[test]
     fn height_reasonableness() {
-        // Small rope should have small height
         let small_rope = Rope::from("Hello");
         assert!(small_rope.height() <= 2);
 
-        // Large rope should have reasonable height (logarithmic)
         let large_text = "a".repeat(10000);
         let large_rope = Rope::from(large_text.as_str());
         assert!(large_rope.height() > 1);
-        assert!(large_rope.height() < 20); // Should not be too deep
+        assert!(large_rope.height() < 20);
     }
 
     #[test]
@@ -420,11 +403,9 @@ mod tests {
 
     #[test]
     fn delete_across_chunk_boundaries() {
-        // Create a rope that will definitely span multiple chunks
-        let text = "a".repeat(100); // This will create multiple chunks
+        let text = "a".repeat(100);
         let mut rope = Rope::from(text.as_str());
 
-        // Delete across chunk boundaries
         rope.delete(10..90).unwrap();
 
         let expected = "a".repeat(10) + &"a".repeat(10);
@@ -457,7 +438,7 @@ mod tests {
         rope.delete(200..400).unwrap();
 
         assert!(rope.height() > 0);
-        assert!(rope.height() < 15); // Not too deep
+        assert!(rope.height() < 15);
 
         let result = rope.to_string();
         assert_eq!(result.len(), rope.len());
@@ -484,6 +465,15 @@ mod tests {
         string.replace_range(6..16, "");
         assert_eq!(rope.to_string(), string);
 
+        let res = rope.root.check_leaves_same_depths();
+        match res {
+            Ok(_) => assert!(true),
+            Err(err) => {
+                eprintln!("{}", err);
+                assert!(false);
+            }
+        }
+
         to_insert = " asdasdccc     w3qrdw
             asjdhlkhff
             g  gfgfgg rteroi";
@@ -495,5 +485,14 @@ mod tests {
         rope.insert(45, to_insert).unwrap();
         string.insert_str(45, to_insert);
         assert_eq!(rope.to_string(), string);
+
+        let res = rope.root.check_leaves_same_depths();
+        match res {
+            Ok(_) => assert!(true),
+            Err(err) => {
+                eprintln!("{}", err);
+                assert!(false);
+            }
+        }
     }
 }
