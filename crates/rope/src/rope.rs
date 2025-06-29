@@ -12,7 +12,7 @@ pub struct Rope {
 
 impl Rope {
     pub fn new() -> Self {
-        let empty_leaf = Rc::new(Node::Leaf(Leaf::from("")));
+        let empty_leaf = Rc::new(Node::new());
         Rope { root: empty_leaf }
     }
 
@@ -55,7 +55,7 @@ impl From<&str> for Rope {
             return Rope::new();
         }
         let leaves = Leaf::split_text_to_leaves(text);
-        let root = Rc::clone(Node::create_root(&leaves).first().unwrap());
+        let root = Rc::clone(&Node::create_root(&leaves));
         Rope { root }
     }
 }
