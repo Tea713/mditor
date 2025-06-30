@@ -11,8 +11,13 @@ pub enum Node {
 }
 
 impl Node {
-    pub fn new() -> Self {
-        Node::Leaf(Leaf::new())
+    pub fn new() -> Rc<Self> {
+        Rc::new(Node::Leaf(Leaf::new()))
+    }
+
+    pub fn from_str(value: &str) -> Rc<Self> {
+        let leaves = Leaf::split_text_to_leaves(value);
+        Rc::clone(&Self::create_root(&leaves))
     }
 
     pub fn is_leaf(&self) -> bool {
@@ -109,7 +114,7 @@ impl Node {
             curr_nodes = Node::create_parent_branches(&curr_nodes);
         }
         match curr_nodes.first() {
-            None => Rc::new(Self::new()),
+            None => Self::new(),
             Some(root) => Rc::clone(&root),
         }
     }
@@ -129,7 +134,7 @@ impl Node {
             }
             curr_nodes = children;
         }
-        return Rc::new(Self::new());
+        return Self::new();
     }
 
     pub fn write_to(&self, buf: &mut String) {
@@ -293,17 +298,6 @@ impl Branch {
         }
 
         Node::create_parent_branches(&children)
-    }
-}
-
-impl From<Leaf> for Branch {
-    fn from(value: Leaf) -> Self {
-        Branch {
-            height: 2,
-            length: value.len(),
-            keys: Vec::new(),
-            children: vec![Rc::new(Node::Leaf(value))],
-        }
     }
 }
 

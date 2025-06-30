@@ -1,6 +1,6 @@
 mod node;
 
-use node::{Leaf, Node};
+use node::Node;
 use std::fmt;
 use std::ops::Range;
 use std::rc::Rc;
@@ -12,7 +12,7 @@ pub struct Rope {
 
 impl Rope {
     pub fn new() -> Self {
-        let empty_leaf = Rc::new(Node::new());
+        let empty_leaf = Node::new();
         Rope { root: empty_leaf }
     }
 
@@ -54,8 +54,7 @@ impl From<&str> for Rope {
         if text.is_empty() {
             return Rope::new();
         }
-        let leaves = Leaf::split_text_to_leaves(text);
-        let root = Rc::clone(&Node::create_root(&leaves));
+        let root = Node::from_str(text);
         Rope { root }
     }
 }
@@ -79,6 +78,8 @@ pub enum DeleteError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Should probably manually make the test more high quality
 
     #[test]
     fn hello_world() {
