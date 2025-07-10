@@ -1,5 +1,6 @@
-use std::ops::Range;
-use std::{cmp, rc::Rc};
+use core::panic;
+use std::{cmp, ops::Range, rc::Rc};
+use unicode_segmentation::GraphemeCursor;
 
 pub const MAX_CHUNK_SIZE: usize = if cfg!(test) { 8 } else { 64 };
 pub const TREE_ORDER: usize = 4;
@@ -335,19 +336,28 @@ impl Leaf {
         }
         let mut leaves: Vec<Rc<Node>> = Vec::new();
 
+        let mut cursor = GraphemeCursor::new(0, text.len(), true);
+
         let num_split = (text.len() as f64 / MAX_CHUNK_SIZE as f64).ceil() as usize;
         let chunk_size = (text.len() as f64 / num_split as f64).ceil() as usize;
 
-        for i in 0..num_split {
-            let start = chunk_size * i;
-            let end = cmp::min(chunk_size * (i + 1), text.len());
+        while cursor.cur_cursor() < text.len() {
+            let start = cursor.cur_cursor();
+            cursor.set_cursor(cmp::min(start + chunk_size, text.len()));
+
+            while !text.is_char_boundary(cursor.cur_cursor())
+                || !cursor.is_boundary(text, 0).unwrap_or(false)
+            {
+                cursor.set_cursor(cursor.cur_cursor() + 1);
+            }
+
+            let end = cursor.cur_cursor();
             let chunk = &text[start..end];
             let new_leaf = Rc::new(Node::Leaf(Leaf::from(chunk)));
             leaves.push(new_leaf);
         }
         leaves
     }
-
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
         let (before, after) = self.chunk.split_at(index);
         let new_text: String = format!("{}{}{}", before, text, after);
