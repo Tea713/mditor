@@ -1,4 +1,3 @@
-use core::panic;
 use std::{cmp, ops::Range, rc::Rc};
 use unicode_segmentation::GraphemeCursor;
 
@@ -334,8 +333,8 @@ impl Leaf {
         if text.is_empty() {
             return Vec::new();
         }
-        let mut leaves: Vec<Rc<Node>> = Vec::new();
 
+        let mut leaves: Vec<Rc<Node>> = Vec::new();
         let mut cursor = GraphemeCursor::new(0, text.len(), true);
 
         let num_split = (text.len() as f64 / MAX_CHUNK_SIZE as f64).ceil() as usize;
