@@ -187,6 +187,7 @@ impl Node {
 
 #[derive(Debug)]
 pub struct Branch {
+    //new_lines: u8,
     height: usize,
     length: usize,
     keys: Vec<usize>,
@@ -303,6 +304,7 @@ impl Branch {
 
 #[derive(Debug)]
 pub struct Leaf {
+    // new_lines: u8,
     chunk: String,
 }
 
@@ -368,4 +370,9 @@ impl Leaf {
         new_text.replace_range(range, "");
         Self::split_text_to_leaves(&new_text)
     }
+}
+
+#[cfg(test)]
+mod test {
+    // maybe write some test for this as well
 }

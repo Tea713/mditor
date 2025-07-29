@@ -42,6 +42,12 @@ impl Rope {
         Ok(())
     }
 
+    // TODO: add slicing to create sub-ropes
+
+    // TODO: maybe add `lines()` iterator?
+
+    // TODO: lines, columnes conversion to integrate to editor
+
     pub fn collect_leaves(&self) -> String {
         let mut buf = String::with_capacity(self.len());
         self.root.write_to(&mut buf);
@@ -79,41 +85,43 @@ pub enum DeleteError {
 mod tests {
     use super::*;
 
-    // Should probably manually make the test more high quality
+    // TODO: should probably manually reduce the number of test while making tests more high quality, maybe introduce some randomness?
 
     #[test]
-    fn hello_world() {
-        let hello_rope = Rope::from("Hello world!");
-        let hello_string = String::from("Hello world!");
-        assert_eq!(hello_rope.to_string(), hello_string);
+    fn same() {
+        let hello_rope = Rope::from("Hello world! I am a rope.");
+        assert_eq!(hello_rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
-    fn hello_not_the_same() {
-        let hello_rope = Rope::from("Hello rope!");
-        let hello_string = String::from("Hello word!");
-        assert_ne!(hello_rope.to_string(), hello_string);
+    fn different() {
+        let hello_rope = Rope::from("Hello world! I am a rope.");
+        assert_ne!(hello_rope.to_string(), "Hello world! I am a string.");
     }
 
     #[test]
     fn insert_at_beginning() {
-        let mut rope = Rope::from("world!");
+        let mut rope = Rope::from("world! I am a rope.");
         rope.insert(0, "Hello ").unwrap();
-        assert_eq!(rope.to_string(), "Hello world!");
+        assert_eq!(rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
     fn insert_at_end() {
         let mut rope = Rope::from("Hello");
-        rope.insert(5, " world!").unwrap();
-        assert_eq!(rope.to_string(), "Hello world!");
+        rope.insert(5, " world! I am a rope.").unwrap();
+        assert_eq!(rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
     fn insert_in_middle() {
-        let mut rope = Rope::from("Helloworld!");
+        let mut rope = Rope::from("Helloworld!Iamarope.");
         rope.insert(5, " ").unwrap();
-        assert_eq!(rope.to_string(), "Hello world!");
+        rope.insert(12, " ").unwrap();
+        rope.insert(14, " ").unwrap();
+        rope.insert(17, " ").unwrap();
+        rope.insert(19, " ").unwrap();
+        assert_eq!(rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
@@ -269,17 +277,11 @@ mod tests {
         assert_eq!(rope.len(), 200);
     }
 
-    // TODO: fix issues where splitting leaves split inside emojis
     #[test]
     fn unicode_characters() {
         let text = "Hello 🌍 World! 你好";
         let mut rope = Rope::from(text);
 
-        // Length should be in bytes, not chars
-        assert_eq!(rope.len(), text.len());
-        assert_eq!(rope.to_string(), text);
-
-        // Insert unicode
         rope.insert(6, "🦀 ").unwrap();
         assert_eq!(rope.to_string(), "Hello 🦀 🌍 World! 你好");
     }
