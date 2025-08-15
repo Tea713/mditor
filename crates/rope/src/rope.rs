@@ -20,6 +20,10 @@ impl Rope {
         self.root.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.root.len() == 0
+    }
+
     pub fn height(&self) -> usize {
         self.root.height()
     }
@@ -42,7 +46,11 @@ impl Rope {
         Ok(())
     }
 
-    // TODO: add slicing to create sub-ropes
+    pub fn slice(&self, range: Range<usize>) -> Self {
+        Rope {
+            root: self.root.slice(range),
+        }
+    }
 
     // TODO: maybe add `lines()` iterator?
 
@@ -86,6 +94,13 @@ mod tests {
     use super::*;
 
     // TODO: should probably manually reduce the number of test while making tests more high quality, maybe introduce some randomness?
+    
+    #[test]
+    fn slicing() {
+        let hello_rope = Rope::from("Hello world! I am a rope.");
+        let hello_slice = hello_rope.slice(0..12);
+        assert_eq!(hello_slice.to_string(), "Hello world!");
+    }
 
     #[test]
     fn same() {

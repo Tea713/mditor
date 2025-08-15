@@ -73,6 +73,19 @@ impl Node {
         }
     }
 
+    pub fn slice(&self, range: Range<usize>) -> Rc<Node> {
+        let nodes = self.slice_recursive(range);
+        let root = Node::truncate_root(&nodes);
+        Rc::clone(&root)
+    }
+
+    pub fn slice_recursive(&self, range: Range<usize>) -> Vec<Rc<Node>> {
+        match self {
+            Self::Branch(branch) => branch.slice(range),
+            Self::Leaf(leaf) => leaf.slice(range),
+        }
+    }
+
     // create parent branch(es) for node(s)
     pub fn create_parent_branches(children: &Vec<Rc<Node>>) -> Vec<Rc<Node>> {
         let mut parents: Vec<Rc<Node>> = Vec::new();
@@ -268,8 +281,8 @@ impl Branch {
         let mut altered_children: Vec<Rc<Node>> = Vec::new();
 
         for (pos, range_in_child) in &to_delete {
-            let altered_node = Rc::clone(&children[*pos]);
-            let altered = altered_node.delete_recursive(range_in_child.clone());
+            let to_alter = Rc::clone(&children[*pos]);
+            let altered = to_alter.delete_recursive(range_in_child.clone());
             altered_children.extend(altered);
         }
 
@@ -299,6 +312,20 @@ impl Branch {
         }
 
         Node::create_parent_branches(&children)
+    }
+
+    pub fn slice(&self, range: Range<usize>) -> Vec<Rc<Node>> {
+        let to_include = self.find_children_by_range(range);
+        let children = self.children.clone();
+        let mut children_to_include = Vec::new();
+
+        for (pos, range_in_child) in &to_include {
+            let to_alter = Rc::clone(&children[*pos]);
+            let altered = to_alter.slice_recursive(range_in_child.clone());
+            children_to_include.extend(altered);
+        }
+
+        Node::create_parent_branches(&children_to_include)
     }
 }
 
@@ -369,6 +396,11 @@ impl Leaf {
         let mut new_text = self.chunk.to_owned();
         new_text.replace_range(range, "");
         Self::split_text_to_leaves(&new_text)
+    }
+
+    pub fn slice(&self, range: Range<usize>) -> Vec<Rc<Node>> {
+        let text = self.chunk.to_owned();
+        Self::split_text_to_leaves(&text[range])
     }
 }
 
