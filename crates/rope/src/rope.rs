@@ -79,6 +79,12 @@ impl fmt::Display for Rope {
     }
 }
 
+impl Default for Rope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 pub enum InsertError {
     OutOfBounds { index: usize, len: usize },
@@ -275,7 +281,7 @@ mod tests {
 
         rope.insert(2, &large_insert).unwrap();
 
-        let expected = format!("He{}llo", large_insert);
+        let expected = format!("He{large_insert}llo");
         assert_eq!(rope.to_string(), expected);
         assert_eq!(rope.len(), 505);
     }
@@ -485,10 +491,10 @@ mod tests {
 
         let res = rope.root.check_leaves_same_depths();
         match res {
-            Ok(_) => assert!(true),
+            Ok(_) => {},
             Err(err) => {
-                eprintln!("{}", err);
-                assert!(false);
+                eprintln!("{err}");
+                panic!("Not same depth");
             }
         }
 
@@ -506,10 +512,10 @@ mod tests {
 
         let res = rope.root.check_leaves_same_depths();
         match res {
-            Ok(_) => assert!(true),
+            Ok(_) => {},
             Err(err) => {
-                eprintln!("{}", err);
-                assert!(false);
+                eprintln!("{err}");
+                panic!("Not same depth!")
             }
         }
     }

@@ -50,7 +50,7 @@ impl Node {
 
     pub fn insert(&self, index: usize, text: &str) -> Rc<Node> {
         let nodes = self.insert_recursive(index, text);
-        return Rc::clone(&Self::create_root(&nodes));
+        Rc::clone(&Self::create_root(&nodes))
     }
 
     pub fn insert_recursive(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
@@ -87,7 +87,7 @@ impl Node {
     }
 
     // create parent branch(es) for node(s)
-    pub fn create_parent_branches(children: &Vec<Rc<Node>>) -> Vec<Rc<Node>> {
+    pub fn create_parent_branches(children: &[Rc<Node>]) -> Vec<Rc<Node>> {
         let mut parents: Vec<Rc<Node>> = Vec::new();
 
         if children.is_empty() {
@@ -121,21 +121,21 @@ impl Node {
     }
 
     // create parent branches until a root that support all provided branches is formed
-    pub fn create_root(nodes: &Vec<Rc<Node>>) -> Rc<Node> {
-        let mut curr_nodes = nodes.clone();
+    pub fn create_root(nodes: &[Rc<Node>]) -> Rc<Node> {
+        let mut curr_nodes = nodes.to_vec();
         while curr_nodes.len() > 1 {
             curr_nodes = Node::create_parent_branches(&curr_nodes);
         }
         match curr_nodes.first() {
             None => Self::new(),
-            Some(root) => Rc::clone(&root),
+            Some(root) => Rc::clone(root),
         }
     }
 
     // remove nodes that are not necessary for the tree to have all of its data by traversing to the left
     // currently just used after deletion when it leaves a series of nodes from root to a certain nodes that each have a single child
-    pub fn truncate_root(nodes: &Vec<Rc<Node>>) -> Rc<Node> {
-        let mut curr_nodes = nodes.clone();
+    pub fn truncate_root(nodes: &[Rc<Node>]) -> Rc<Node> {
+        let mut curr_nodes = nodes.to_vec();
         while !curr_nodes.is_empty() {
             let root = Rc::clone(curr_nodes.first().unwrap());
             if root.is_leaf() {
@@ -147,7 +147,7 @@ impl Node {
             }
             curr_nodes = children;
         }
-        return Self::new();
+        Self::new()
     }
 
     pub fn write_to(&self, buf: &mut String) {
@@ -178,8 +178,7 @@ impl Node {
             let min_height = *leaf_depths.iter().min().unwrap();
             let max_height = *leaf_depths.iter().max().unwrap();
             Err(format!(
-                "Leaves at inconsistent heights: min={}, max={}, found heights: {:?}",
-                min_height, max_height, leaf_depths
+                "Leaves at inconsistent heights: min={min_height}, max={max_height}, found heights: {leaf_depths:?}"
             ))
         }
     }
@@ -225,7 +224,7 @@ impl Branch {
             };
             offset = *key;
         }
-        return (self.children.len() - 1, index - offset);
+        (self.children.len() - 1, index - offset)
     }
 
     // return the indexes of the children and the real ranges in the them
@@ -386,9 +385,10 @@ impl Leaf {
         }
         leaves
     }
+
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
         let (before, after) = self.chunk.split_at(index);
-        let new_text: String = format!("{}{}{}", before, text, after);
+        let new_text: String = format!("{before}{text}{after}");
         Self::split_text_to_leaves(&new_text)
     }
 
