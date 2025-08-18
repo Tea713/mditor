@@ -12,8 +12,7 @@ pub struct Rope {
 
 impl Rope {
     pub fn new() -> Self {
-        let empty_leaf = Node::new();
-        Rope { root: empty_leaf }
+        Rope { root: Node::new() }
     }
 
     pub fn len(&self) -> usize {
@@ -68,8 +67,9 @@ impl From<&str> for Rope {
         if text.is_empty() {
             return Rope::new();
         }
-        let root = Node::from_str(text);
-        Rope { root }
+        Rope {
+            root: Node::from_str(text),
+        }
     }
 }
 
