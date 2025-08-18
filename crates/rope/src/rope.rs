@@ -100,7 +100,7 @@ mod tests {
     use super::*;
 
     // TODO: should probably manually reduce the number of test while making tests more high quality, maybe introduce some randomness?
-    
+
     #[test]
     fn slicing() {
         let hello_rope = Rope::from("Hello world! I am a rope.");
@@ -491,7 +491,7 @@ mod tests {
 
         let res = rope.root.check_leaves_same_depths();
         match res {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => {
                 eprintln!("{err}");
                 panic!("Not same depth");
@@ -512,7 +512,7 @@ mod tests {
 
         let res = rope.root.check_leaves_same_depths();
         match res {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(err) => {
                 eprintln!("{err}");
                 panic!("Not same depth!")
