@@ -266,11 +266,6 @@ impl Branch {
     pub fn delete(&self, range: Range<usize>) -> Vec<Rc<Node>> {
         let mut children = self.children.clone();
 
-        // The previous recursion call likely deleted everything in this branch
-        if children.is_empty() {
-            return Vec::new();
-        }
-
         let to_delete = self.find_children_by_range(range);
 
         if to_delete.is_empty() {
