@@ -288,7 +288,7 @@ impl Branch {
             return Vec::new();
         }
 
-        // No need to check if the children of the current is filled less than half its max capacity when children are leaves
+        // No need to check if the children of the current branch is filled less than half its max capacity when children are leaves
         if children.first().unwrap().is_leaf() {
             return Node::create_parent_branches(&children);
         }
@@ -317,6 +317,23 @@ impl Branch {
             let to_alter = Rc::clone(&children[*pos]);
             let altered = to_alter.slice_recursive(range_in_child.clone());
             children_to_include.extend(altered);
+        }
+
+        // No need to check if the children of the current branch is filled less than half its max capacity when children are leaves
+        if children_to_include.first().unwrap().is_leaf() {
+            return Node::create_parent_branches(&children_to_include);
+        }
+
+        let mut need_restructure = false;
+        let mut grandchildren: Vec<Rc<Node>> = Vec::new();
+        for child in &children_to_include {
+            grandchildren.extend(child.children());
+            if child.children().len() < TREE_ORDER / 2 {
+                need_restructure = true;
+            }
+        }
+        if need_restructure {
+            children_to_include = Node::create_parent_branches(&grandchildren);
         }
 
         Node::create_parent_branches(&children_to_include)
