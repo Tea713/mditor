@@ -1,9 +1,9 @@
 mod node;
 
 use node::Node;
-use std::fmt;
 use std::ops::Range;
 use std::rc::Rc;
+use std::{cmp, fmt};
 
 #[derive(Debug)]
 pub struct Rope {
@@ -31,27 +31,21 @@ impl Rope {
         self.root.new_lines()
     }
 
-    pub fn insert(&mut self, index: usize, text: &str) -> Result<(), InsertError> {
-        let len = self.len();
-        if index > len {
-            return Err(InsertError::OutOfBounds { index, len });
-        }
-        self.root = self.root.insert(index, text);
-        Ok(())
+    pub fn insert(&mut self, index: usize, text: &str) {
+        self.root = self.root.insert(cmp::min(index, self.len()), text);
     }
 
-    pub fn delete(&mut self, range: Range<usize>) -> Result<(), DeleteError> {
-        let len = self.len();
-        if range.end > len {
-            return Err(DeleteError::OutOfBounds { range, len });
-        }
-        self.root = self.root.delete(range);
-        Ok(())
+    pub fn delete(&mut self, range: Range<usize>) {
+        self.root = self
+            .root
+            .delete(cmp::min(range.start, self.len())..cmp::min(range.end, self.len()));
     }
 
     pub fn slice(&self, range: Range<usize>) -> Self {
         Rope {
-            root: self.root.slice(range),
+            root: self
+                .root
+                .slice(range.start..cmp::min(range.end, self.len())),
         }
     }
 
@@ -89,16 +83,6 @@ impl Default for Rope {
     }
 }
 
-#[derive(Debug)]
-pub enum InsertError {
-    OutOfBounds { index: usize, len: usize },
-}
-
-#[derive(Debug)]
-pub enum DeleteError {
-    OutOfBounds { range: Range<usize>, len: usize },
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,21 +108,19 @@ mod tests {
 
         assert_eq!(rope_slice.new_lines(), str_slice.matches('\n').count());
 
-        hello_rope.delete(10..29).unwrap();
+        hello_rope.delete(10..29);
         hello_string.replace_range(10..29, "");
 
         assert_eq!(hello_rope.new_lines(), hello_string.matches('\n').count());
 
-        hello_rope
-            .insert(
-                37,
-                "
+        hello_rope.insert(
+            37,
+            "
             dsakj
             dsdfl;wwww dad
             ddddd ddddd  daasdw
             ",
-            )
-            .unwrap();
+        );
 
         hello_string.insert_str(
             37,
@@ -174,62 +156,62 @@ mod tests {
     #[test]
     fn insert_at_beginning() {
         let mut rope = Rope::from("world! I am a rope.");
-        rope.insert(0, "Hello ").unwrap();
+        rope.insert(0, "Hello ");
         assert_eq!(rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
     fn insert_at_end() {
         let mut rope = Rope::from("Hello");
-        rope.insert(5, " world! I am a rope.").unwrap();
+        rope.insert(5, " world! I am a rope.");
         assert_eq!(rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
     fn insert_in_middle() {
         let mut rope = Rope::from("Helloworld!Iamarope.");
-        rope.insert(5, " ").unwrap();
-        rope.insert(12, " ").unwrap();
-        rope.insert(14, " ").unwrap();
-        rope.insert(17, " ").unwrap();
-        rope.insert(19, " ").unwrap();
+        rope.insert(5, " ");
+        rope.insert(12, " ");
+        rope.insert(14, " ");
+        rope.insert(17, " ");
+        rope.insert(19, " ");
         assert_eq!(rope.to_string(), "Hello world! I am a rope.");
     }
 
     #[test]
     fn delete_at_beginning() {
         let mut rope = Rope::from("Hello world!");
-        rope.delete(0..6).unwrap();
+        rope.delete(0..6);
         assert_eq!(rope.to_string(), "world!");
     }
 
     #[test]
     fn delete_at_end() {
         let mut rope = Rope::from("Hello world!");
-        rope.delete(5..12).unwrap();
+        rope.delete(5..12);
         assert_eq!(rope.to_string(), "Hello");
     }
 
     #[test]
     fn delete_in_middle() {
         let mut rope = Rope::from("Hello beautiful world!");
-        rope.delete(6..16).unwrap();
+        rope.delete(6..16);
         assert_eq!(rope.to_string(), "Hello world!");
     }
 
     #[test]
     fn delete_then_insert() {
         let mut rope = Rope::from("Hello beautiful world!");
-        rope.delete(6..21).unwrap();
-        rope.insert(6, "world").unwrap();
+        rope.delete(6..21);
+        rope.insert(6, "world");
         assert_eq!(rope.to_string(), "Hello world!");
     }
 
     #[test]
     fn insert_and_delete() {
         let mut rope = Rope::from("Hello");
-        rope.insert(5, " world!").unwrap();
-        rope.delete(5..11).unwrap();
+        rope.insert(5, " world!");
+        rope.delete(5..11);
         assert_eq!(rope.to_string(), "Hello!");
     }
 
@@ -239,15 +221,15 @@ mod tests {
         assert_eq!(rope.len(), 0);
         assert_eq!(rope.to_string(), "");
 
-        rope.insert(0, "Hello").unwrap();
+        rope.insert(0, "Hello");
         assert_eq!(rope.to_string(), "Hello");
         assert_eq!(rope.len(), 5);
 
-        rope.delete(0..5).unwrap();
+        rope.delete(0..5);
         assert_eq!(rope.to_string(), "");
         assert_eq!(rope.len(), 0);
 
-        rope.insert(0, "World").unwrap();
+        rope.insert(0, "World");
         assert_eq!(rope.to_string(), "World");
     }
 
@@ -264,54 +246,46 @@ mod tests {
         let mut rope = Rope::from("a");
         assert_eq!(rope.len(), 1);
 
-        rope.insert(0, "b").unwrap();
+        rope.insert(0, "b");
         assert_eq!(rope.to_string(), "ba");
 
-        rope.insert(2, "c").unwrap();
+        rope.insert(2, "c");
         assert_eq!(rope.to_string(), "bac");
 
-        rope.delete(1..2).unwrap();
+        rope.delete(1..2);
         assert_eq!(rope.to_string(), "bc");
     }
 
     #[test]
     fn insert_out_of_bounds() {
         let mut rope = Rope::from("Hello");
-
-        let result = rope.insert(6, " World");
-        assert!(result.is_err());
-
-        assert_eq!(rope.to_string(), "Hello");
+        rope.insert(6, " World");
+        assert_eq!(rope.to_string(), "Hello World");
     }
 
     #[test]
     fn delete_out_of_bounds() {
         let mut rope = Rope::from("Hello");
-
-        let result = rope.delete(0..6);
-        assert!(result.is_err());
-
-        let result = rope.delete(6..7);
-        assert!(result.is_err());
-
-        assert_eq!(rope.to_string(), "Hello");
+        rope.delete(0..6);
+        rope.delete(6..7);
+        assert_eq!(rope.to_string(), "");
     }
 
     #[test]
     fn empty_range_delete() {
         let mut rope = Rope::from("Hello");
 
-        rope.delete(2..2).unwrap();
+        rope.delete(2..2);
         assert_eq!(rope.to_string(), "Hello");
 
-        rope.delete(5..5).unwrap();
+        rope.delete(5..5);
         assert_eq!(rope.to_string(), "Hello");
     }
 
     #[test]
     fn insert_empty_string() {
         let mut rope = Rope::from("Hello");
-        rope.insert(2, "").unwrap();
+        rope.insert(2, "");
         assert_eq!(rope.to_string(), "Hello");
     }
 
@@ -330,7 +304,7 @@ mod tests {
         let mut rope = Rope::from("Hello");
         let large_insert = "x".repeat(500);
 
-        rope.insert(2, &large_insert).unwrap();
+        rope.insert(2, &large_insert);
 
         let expected = format!("He{large_insert}llo");
         assert_eq!(rope.to_string(), expected);
@@ -342,7 +316,7 @@ mod tests {
         let large_text = "a".repeat(1000);
         let mut rope = Rope::from(large_text.as_str());
 
-        rope.delete(100..900).unwrap();
+        rope.delete(100..900);
 
         let expected = "a".repeat(100) + &"a".repeat(100);
         assert_eq!(rope.to_string(), expected);
@@ -354,7 +328,7 @@ mod tests {
         let text = "Hello 🌍 World! 你好";
         let mut rope = Rope::from(text);
 
-        rope.insert(6, "🦀 ").unwrap();
+        rope.insert(6, "🦀 ");
         assert_eq!(rope.to_string(), "Hello 🦀 🌍 World! 你好");
     }
 
@@ -363,7 +337,7 @@ mod tests {
         let mut rope = Rope::from("👨‍👩‍👧‍👦");
         let original_len = rope.len();
 
-        rope.insert(0, "Family: ").unwrap();
+        rope.insert(0, "Family: ");
         assert_eq!(rope.len(), original_len + "Family: ".len());
 
         assert!(rope.to_string().contains("👨‍👩‍👧‍👦"));
@@ -374,7 +348,7 @@ mod tests {
         let mut rope = Rope::new();
 
         for i in 0..100 {
-            rope.insert(i, "x").unwrap();
+            rope.insert(i, "x");
         }
 
         assert_eq!(rope.len(), 100);
@@ -387,7 +361,7 @@ mod tests {
         let mut rope = Rope::from(text.as_str());
 
         for i in (0..100).rev() {
-            rope.delete(i..i + 1).unwrap();
+            rope.delete(i..i + 1);
         }
 
         assert_eq!(rope.len(), 0);
@@ -399,11 +373,11 @@ mod tests {
         let mut rope = Rope::from("base");
 
         for _ in 0..50 {
-            rope.insert(2, "xx").unwrap();
+            rope.insert(2, "xx");
             assert!(rope.len() >= 4);
 
             if rope.len() > 4 {
-                rope.delete(2..3).unwrap();
+                rope.delete(2..3);
             }
         }
         assert!(rope.len() >= 4);
@@ -415,11 +389,11 @@ mod tests {
         let initial_len = rope.len();
 
         // After insert
-        rope.insert(5, " Beautiful").unwrap();
+        rope.insert(5, " Beautiful");
         assert_eq!(rope.len(), initial_len + " Beautiful".len());
 
         // After delete
-        rope.delete(5..15).unwrap(); // Remove " Beautiful"
+        rope.delete(5..15); // Remove " Beautiful"
         assert_eq!(rope.len(), initial_len);
         assert_eq!(rope.to_string(), "Hello World");
     }
@@ -440,7 +414,7 @@ mod tests {
         let original = "Hello World";
         let mut rope = Rope::from(original);
 
-        rope.insert(6, "Beautiful ").unwrap();
+        rope.insert(6, "Beautiful ");
 
         let result = rope.to_string();
         assert!(result.starts_with("Hello "));
@@ -453,7 +427,7 @@ mod tests {
         let original = "0123456789";
         let mut rope = Rope::from(original);
 
-        rope.delete(3..7).unwrap(); // Remove "3456"
+        rope.delete(3..7); // Remove "3456"
 
         let result = rope.to_string();
         assert_eq!(result, "012789");
@@ -467,11 +441,11 @@ mod tests {
         let mut string = String::from(text);
 
         // Perform same operations on both
-        rope.delete(6..16).unwrap();
+        rope.delete(6..16);
         string.replace_range(6..16, "");
         assert_eq!(rope.to_string(), string);
 
-        rope.insert(6, "Wonderful ").unwrap();
+        rope.insert(6, "Wonderful ");
         string.insert_str(6, "Wonderful ");
         assert_eq!(rope.to_string(), string);
     }
@@ -481,7 +455,7 @@ mod tests {
         let text = "a".repeat(100);
         let mut rope = Rope::from(text.as_str());
 
-        rope.delete(10..90).unwrap();
+        rope.delete(10..90);
 
         let expected = "a".repeat(10) + &"a".repeat(10);
         assert_eq!(rope.to_string(), expected);
@@ -493,9 +467,9 @@ mod tests {
         let text = "a".repeat(100);
         let mut rope = Rope::from(text.as_str());
 
-        rope.insert(8, "X").unwrap();
-        rope.insert(16, "Y").unwrap();
-        rope.insert(50, "Z").unwrap();
+        rope.insert(8, "X");
+        rope.insert(16, "Y");
+        rope.insert(50, "Z");
 
         let result = rope.to_string();
         assert!(result.contains("X"));
@@ -508,9 +482,9 @@ mod tests {
     fn tree_structure_after_complex_operations() {
         let mut rope = Rope::from("a".repeat(1000).as_str());
 
-        rope.delete(100..900).unwrap();
-        rope.insert(50, &"b".repeat(500)).unwrap();
-        rope.delete(200..400).unwrap();
+        rope.delete(100..900);
+        rope.insert(50, &"b".repeat(500));
+        rope.delete(200..400);
 
         assert!(rope.height() > 0);
         assert!(rope.height() < 15);
@@ -532,11 +506,11 @@ mod tests {
                     asdkjlkw3jpuidpqw
                     ksckwke daskjdlkajsre dsfkr";
 
-        rope.insert(6, to_insert).unwrap();
+        rope.insert(6, to_insert);
         string.insert_str(6, to_insert);
         assert_eq!(rope.to_string(), string);
 
-        rope.delete(6..16).unwrap();
+        rope.delete(6..16);
         string.replace_range(6..16, "");
         assert_eq!(rope.to_string(), string);
 
@@ -553,11 +527,11 @@ mod tests {
             asjdhlkhff
             g  gfgfgg rteroi";
 
-        rope.delete(25..39).unwrap();
+        rope.delete(25..39);
         string.replace_range(25..39, "");
         assert_eq!(rope.to_string(), string);
 
-        rope.insert(45, to_insert).unwrap();
+        rope.insert(45, to_insert);
         string.insert_str(45, to_insert);
         assert_eq!(rope.to_string(), string);
 
