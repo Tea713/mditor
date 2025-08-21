@@ -41,6 +41,13 @@ impl Node {
         }
     }
 
+    pub fn new_lines(&self) -> usize {
+        match self {
+            Self::Branch(branch) => branch.new_lines(),
+            Self::Leaf(leaf) => leaf.new_lines(),
+        }
+    }
+
     pub fn children(&self) -> Vec<Rc<Node>> {
         match self {
             Self::Branch(branch) => branch.children.clone(),
@@ -101,16 +108,21 @@ impl Node {
             let branch_children = chunk.to_vec();
             let mut keys: Vec<usize> = Vec::new();
             let mut length: usize = 0;
+            let mut new_lines: usize = 0;
 
             for child in chunk.iter().take(chunk.len().saturating_sub(1)) {
                 length += child.len();
                 keys.push(length);
+                new_lines += child.new_lines();
             }
 
             if let Some(last_child) = chunk.last() {
                 length += last_child.len();
+                new_lines += last_child.new_lines();
             }
+
             parents.push(Rc::new(Node::Branch(Branch {
+                new_lines,
                 children: branch_children,
                 height: children.first().unwrap().height() + 1,
                 keys,
@@ -199,7 +211,7 @@ impl Node {
 
 #[derive(Debug)]
 pub struct Branch {
-    //new_lines: u8,
+    new_lines: usize,
     height: usize,
     length: usize,
     keys: Vec<usize>,
@@ -213,6 +225,10 @@ impl Branch {
 
     pub fn len(&self) -> usize {
         self.length
+    }
+
+    pub fn new_lines(&self) -> usize {
+        self.new_lines
     }
 
     // return the index of the child and the real index in the child
@@ -342,13 +358,14 @@ impl Branch {
 
 #[derive(Debug)]
 pub struct Leaf {
-    // new_lines: u8,
+    new_lines: usize,
     chunk: String,
 }
 
 impl From<&str> for Leaf {
     fn from(value: &str) -> Self {
         Leaf {
+            new_lines: value.matches('\n').count(),
             chunk: value.to_owned(),
         }
     }
@@ -357,6 +374,7 @@ impl From<&str> for Leaf {
 impl Leaf {
     pub fn new() -> Self {
         Leaf {
+            new_lines: 0,
             chunk: String::new(),
         }
     }
@@ -367,6 +385,10 @@ impl Leaf {
 
     pub fn len(&self) -> usize {
         self.chunk.len()
+    }
+
+    pub fn new_lines(&self) -> usize {
+        self.new_lines
     }
 
     pub fn split_text_to_leaves(text: &str) -> Vec<Rc<Node>> {

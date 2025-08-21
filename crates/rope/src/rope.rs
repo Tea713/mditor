@@ -27,6 +27,10 @@ impl Rope {
         self.root.height()
     }
 
+    pub fn new_lines(&self) -> usize {
+        self.root.new_lines()
+    }
+
     pub fn insert(&mut self, index: usize, text: &str) -> Result<(), InsertError> {
         let len = self.len();
         if index > len {
@@ -100,6 +104,53 @@ mod tests {
     use super::*;
 
     // TODO: should probably manually reduce the number of test while making tests more high quality, maybe introduce some randomness?
+
+    #[test]
+    fn new_lines_count() {
+        let mut hello_string = String::from(
+            "
+            Hello world!
+            I am a rope.
+            Yaddi asdjjdasf fdsadjjjjj
+            dasg ewwertdasdff
+            293481 12oi3jlkjjjdjla lllasd
+            ",
+        );
+        let mut hello_rope = Rope::from(hello_string.as_str());
+        assert_eq!(hello_rope.new_lines(), hello_string.matches('\n').count());
+
+        let rope_slice = hello_rope.slice(40..67);
+        let str_slice = &hello_string[40..67];
+
+        assert_eq!(rope_slice.new_lines(), str_slice.matches('\n').count());
+
+        hello_rope.delete(10..29).unwrap();
+        hello_string.replace_range(10..29, "");
+
+        assert_eq!(hello_rope.new_lines(), hello_string.matches('\n').count());
+
+        hello_rope
+            .insert(
+                37,
+                "
+            dsakj
+            dsdfl;wwww dad
+            ddddd ddddd  daasdw
+            ",
+            )
+            .unwrap();
+
+        hello_string.insert_str(
+            37,
+            "
+            dsakj
+            dsdfl;wwww dad
+            ddddd ddddd  daasdw
+            ",
+        );
+
+        assert_eq!(hello_rope.new_lines(), hello_string.matches('\n').count());
+    }
 
     #[test]
     fn slicing() {
