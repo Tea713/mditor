@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn empty_lines_iter() {
-        let hello_vec: Vec<String> = vec![
+        let new_lines_vec: Vec<String> = vec![
             "".to_string(),
             "".to_string(),
             "".to_string(),
@@ -129,11 +129,11 @@ mod tests {
             "".to_string(),
         ];
 
-        let hello_rope = Rope::from("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+        let new_lines_rope = Rope::from("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
 
-        let iter_vec: Vec<String> = hello_rope.lines().collect();
+        let iter_vec: Vec<String> = new_lines_rope.lines().collect();
 
-        assert_eq!(hello_vec, iter_vec);
+        assert_eq!(new_lines_vec, iter_vec);
     }
 
     #[test]
