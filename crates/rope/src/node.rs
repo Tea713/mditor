@@ -41,6 +41,38 @@ impl Node {
         }
     }
 
+    pub fn lines(&self) -> impl Iterator<Item = String> {
+        let mut lines: Vec<String> = Vec::new();
+        self.lines_recursive(&mut lines, true);
+        lines.into_iter()
+    }
+
+    pub fn lines_recursive(&self, lines: &mut Vec<String>, line_break: bool) -> bool {
+        match self {
+            Self::Branch(branch) => {
+                let children = branch.children.clone();
+                let mut line_break = line_break;
+                for child in children {
+                    line_break = child.lines_recursive(lines, line_break);
+                }
+                line_break
+            }
+            Self::Leaf(leaf) => {
+                let mut chunk_lines = leaf.chunk.lines();
+                if !line_break {
+                    let len = lines.len();
+                    lines[len - 1].push_str(chunk_lines.next().unwrap());
+                }
+
+                for line in chunk_lines {
+                    lines.push(line.to_string());
+                }
+
+                leaf.chunk.ends_with('\n')
+            }
+        }
+    }
+
     pub fn new_lines(&self) -> usize {
         match self {
             Self::Branch(branch) => branch.new_lines(),

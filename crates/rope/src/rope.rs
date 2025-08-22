@@ -50,6 +50,9 @@ impl Rope {
     }
 
     // TODO: maybe add `lines()` iterator?
+    pub fn lines(&self) -> impl Iterator<Item = String> {
+        self.root.lines()
+    }
 
     // TODO: lines, columnes conversion to integrate to editor
 
@@ -88,6 +91,50 @@ mod tests {
     use super::*;
 
     // TODO: should probably manually reduce the number of test while making tests more high quality, maybe introduce some randomness?
+
+    #[test]
+    fn lines_iter() {
+        let hello_vec: Vec<String> = vec![
+            "Hello world!".to_string(),
+            "rweklrj; fefwert".to_string(),
+            "rkkkkew ffwerrtwqwr dddae3414cc".to_string(),
+        ];
+
+        let hello_rope =
+            Rope::from("Hello world!\nrweklrj; fefwert\nrkkkkew ffwerrtwqwr dddae3414cc");
+
+        let iter_vec: Vec<String> = hello_rope.lines().collect();
+
+        assert_eq!(hello_vec, iter_vec);
+    }
+
+    #[test]
+    fn empty_lines_iter() {
+        let hello_vec: Vec<String> = vec![
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+            "".to_string(),
+        ];
+
+        let hello_rope = Rope::from("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n");
+
+        let iter_vec: Vec<String> = hello_rope.lines().collect();
+
+        assert_eq!(hello_vec, iter_vec);
+    }
 
     #[test]
     fn new_lines_count() {
