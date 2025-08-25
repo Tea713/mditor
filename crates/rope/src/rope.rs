@@ -7,58 +7,58 @@ use std::{cmp, fmt};
 
 #[derive(Debug)]
 pub struct Rope {
-    root: Rc<Node>,
+    node: Rc<Node>,
 }
 
 impl Rope {
     pub fn new() -> Self {
-        Rope { root: Node::new() }
+        Rope { node: Node::new() }
     }
 
     pub fn len(&self) -> usize {
-        self.root.len()
+        self.node.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.root.len() == 0
+        self.node.len() == 0
     }
 
     pub fn height(&self) -> usize {
-        self.root.height()
+        self.node.height()
     }
 
     pub fn new_lines(&self) -> usize {
-        self.root.new_lines()
+        self.node.new_lines()
     }
 
     pub fn insert(&mut self, index: usize, text: &str) {
-        self.root = self.root.insert(cmp::min(index, self.len()), text);
+        self.node = self.node.insert(cmp::min(index, self.len()), text);
     }
 
     pub fn delete(&mut self, range: Range<usize>) {
-        self.root = self
-            .root
+        self.node = self
+            .node
             .delete(cmp::min(range.start, self.len())..cmp::min(range.end, self.len()));
     }
 
     pub fn slice(&self, range: Range<usize>) -> Self {
         Rope {
-            root: self
-                .root
+            node: self
+                .node
                 .slice(range.start..cmp::min(range.end, self.len())),
         }
     }
 
     // TODO: maybe add `lines()` iterator?
     pub fn lines(&self) -> impl Iterator<Item = String> {
-        self.root.lines()
+        self.node.lines()
     }
 
     // TODO: lines, columnes conversion to integrate to editor
 
     pub fn collect_leaves(&self) -> String {
         let mut buf = String::with_capacity(self.len());
-        self.root.write_to(&mut buf);
+        self.node.write_to(&mut buf);
         buf
     }
 }
@@ -69,7 +69,7 @@ impl From<&str> for Rope {
             return Rope::new();
         }
         Rope {
-            root: Node::from_str(text),
+            node: Node::from_str(text),
         }
     }
 }
@@ -561,7 +561,7 @@ mod tests {
         string.replace_range(6..16, "");
         assert_eq!(rope.to_string(), string);
 
-        let res = rope.root.check_leaves_same_depths();
+        let res = rope.node.check_leaves_same_depths();
         match res {
             Ok(_) => {}
             Err(err) => {
@@ -582,7 +582,7 @@ mod tests {
         string.insert_str(45, to_insert);
         assert_eq!(rope.to_string(), string);
 
-        let res = rope.root.check_leaves_same_depths();
+        let res = rope.node.check_leaves_same_depths();
         match res {
             Ok(_) => {}
             Err(err) => {
