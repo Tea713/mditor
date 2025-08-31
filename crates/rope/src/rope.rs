@@ -49,7 +49,10 @@ impl Rope {
         }
     }
 
-    // TODO: maybe add `lines()` iterator?
+    pub fn chunks(&self) -> ChunkIter {
+        ChunkIter::new(self)
+    }
+
     pub fn lines(&self) -> impl Iterator<Item = String> {
         self.node.lines()
     }
@@ -83,6 +86,36 @@ impl fmt::Display for Rope {
 impl Default for Rope {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct ChunkIter {
+    stack: Vec<Rc<Node>>,
+}
+
+impl ChunkIter {
+    fn new(rope: &Rope) -> Self {
+        let mut iter = Self { stack: Vec::new() };
+        iter.stack.push(Rc::clone(&rope.node));
+        iter
+    }
+}
+
+impl Iterator for ChunkIter {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(node) = self.stack.pop() {
+            match node.as_ref() {
+                Node::Leaf(leaf) => return Some(leaf.as_str().to_string()),
+                Node::Branch(branch) => {
+                    for child in branch.children().iter().rev() {
+                        self.stack.push(Rc::clone(child));
+                    }
+                }
+            }
+        }
+        None
     }
 }
 

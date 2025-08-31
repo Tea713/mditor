@@ -263,6 +263,14 @@ impl Branch {
         self.new_lines
     }
 
+    pub fn children(&self) -> Vec<Rc<Node>> {
+        self.children.clone()
+    }
+
+    pub fn keys(&self) -> Vec<usize> {
+        self.keys.clone()
+    }
+
     // return the index of the child and the real index in the child
     pub fn find_child_by_index(&self, index: usize) -> (usize, usize) {
         let mut offset = 0;
