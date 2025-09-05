@@ -2,7 +2,7 @@ use std::{cmp, ops::Range, rc::Rc};
 use unicode_segmentation::GraphemeCursor;
 
 pub const MAX_CHUNK_SIZE: usize = if cfg!(test) { 8 } else { 64 };
-pub const TREE_ORDER: usize = 4;
+pub const TREE_ORDER: usize = 16;
 
 #[derive(Debug)]
 pub enum Node {

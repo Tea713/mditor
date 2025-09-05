@@ -5,7 +5,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::{cmp, fmt};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Rope {
     node: Rc<Node>,
 }
