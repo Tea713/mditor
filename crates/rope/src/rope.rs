@@ -1,6 +1,7 @@
 mod node;
 
 use node::Node;
+use std::collections::VecDeque;
 use std::ops::Range;
 use std::rc::Rc;
 use std::{cmp, fmt};
@@ -41,7 +42,15 @@ impl Rope {
             .delete(cmp::min(range.start, self.len())..cmp::min(range.end, self.len()));
     }
 
-    pub fn slice(&self, range: Range<usize>) -> Self {
+    pub fn slice(&self, range: Range<usize>) -> RopeSlice {
+        RopeSlice {
+            rope: self,
+            start: cmp::min(range.start, self.len()),
+            end: cmp::min(range.end, self.len()),
+        }
+    }
+
+    pub fn slice_to_rope(&self, range: Range<usize>) -> Self {
         Rope {
             node: self
                 .node
@@ -60,9 +69,26 @@ impl Rope {
     // TODO: lines, columnes conversion to integrate to editor
 
     pub fn collect_leaves(&self) -> String {
-        let mut buf = String::with_capacity(self.len());
-        self.node.write_to(&mut buf);
-        buf
+        let mut string = String::with_capacity(self.len());
+        let mut queue: VecDeque<Rc<Node>> = VecDeque::new();
+        queue.push_back(Rc::clone(&self.node));
+        while !queue.is_empty() {
+            if let Some(node) = queue.pop_front() {
+                match node.as_ref() {
+                    Node::Branch(branch) => {
+                        for child in branch.children().iter() {
+                            queue.push_back(Rc::clone(child));
+                        }
+                    }
+                    Node::Leaf(leaf) => {
+                        string.push_str(leaf.as_str());
+                    }
+                }
+            } else {
+                return String::new();
+            }
+        }
+        string
     }
 }
 
@@ -86,6 +112,34 @@ impl fmt::Display for Rope {
 impl Default for Rope {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct RopeSlice<'a> {
+    rope: &'a Rope,
+    start: usize,
+    end: usize,
+}
+
+impl<'a> RopeSlice<'a> {
+    pub fn len(&self) -> usize {
+        self.end - self.start + 1
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn collect_leaves(&self) -> String {
+        let mut buf = String::with_capacity(self.len());
+        self.rope.node.write_to(&mut buf, self.start..self.end);
+        buf
+    }
+}
+
+impl<'a> fmt::Display for RopeSlice<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.collect_leaves())
     }
 }
 
@@ -182,11 +236,6 @@ mod tests {
         );
         let mut hello_rope = Rope::from(hello_string.as_str());
         assert_eq!(hello_rope.new_lines(), hello_string.matches('\n').count());
-
-        let rope_slice = hello_rope.slice(40..67);
-        let str_slice = &hello_string[40..67];
-
-        assert_eq!(rope_slice.new_lines(), str_slice.matches('\n').count());
 
         hello_rope.delete(10..29);
         hello_string.replace_range(10..29, "");

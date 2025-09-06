@@ -4,7 +4,7 @@ use unicode_segmentation::GraphemeCursor;
 pub const MAX_CHUNK_SIZE: usize = if cfg!(test) { 8 } else { 64 };
 pub const TREE_ORDER: usize = 16;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Node {
     Branch(Branch),
     Leaf(Leaf),
@@ -194,14 +194,16 @@ impl Node {
         Self::new()
     }
 
-    pub fn write_to(&self, buf: &mut String) {
+    pub fn write_to(&self, buf: &mut String, range: Range<usize>) {
         match self {
             Self::Branch(branch) => {
-                for child in branch.children.clone() {
-                    child.write_to(buf);
+                let targets = branch.find_children_by_range(range);
+                let children = &branch.children;
+                for target in targets {
+                    children[target.0].write_to(buf, target.1);
                 }
             }
-            Self::Leaf(leaf) => buf.push_str(leaf.as_str()),
+            Self::Leaf(leaf) => buf.push_str(&leaf.as_str()[range]),
         }
     }
 
@@ -241,7 +243,7 @@ impl Node {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Branch {
     new_lines: usize,
     height: usize,
@@ -267,9 +269,9 @@ impl Branch {
         self.children.clone()
     }
 
-    pub fn keys(&self) -> Vec<usize> {
-        self.keys.clone()
-    }
+    // pub fn keys(&self) -> Vec<usize> {
+    //     self.keys.clone()
+    // }
 
     // return the index of the child and the real index in the child
     pub fn find_child_by_index(&self, index: usize) -> (usize, usize) {
@@ -309,11 +311,18 @@ impl Branch {
     // recursively find the correct child to insert into and create new nodes while keeping unaffected nodes
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
         let (insert_index, index_in_child) = self.find_child_by_index(index);
-        let mut children = self.children.clone();
-        let inserted_node = Rc::clone(&children[insert_index]);
+        let target_child = &self.children[insert_index];
 
-        let new_children = inserted_node.insert_recursive(index_in_child, text);
-        children.splice(insert_index..=insert_index, new_children);
+        let new_children = target_child.insert_recursive(index_in_child, text);
+
+        if new_children.len() == 1 && Rc::ptr_eq(&new_children[0], target_child) {
+            return vec![Rc::new(Node::Branch(self.clone()))];
+        }
+
+        let mut children = Vec::with_capacity(self.children.len() - 1 + new_children.len());
+        children.extend_from_slice(&self.children[..insert_index]);
+        children.extend(new_children);
+        children.extend_from_slice(&self.children[(insert_index + 1)..]);
 
         Node::create_parent_branches(&children)
     }
@@ -396,7 +405,7 @@ impl Branch {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Leaf {
     new_lines: usize,
     chunk: String,
@@ -462,7 +471,15 @@ impl Leaf {
 
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
         let (before, after) = self.chunk.split_at(index);
-        let new_text: String = format!("{before}{text}{after}");
+        let mut new_text = String::with_capacity(self.len() + text.len());
+        new_text.push_str(before);
+        new_text.push_str(text);
+        new_text.push_str(after);
+
+        if new_text.len() <= MAX_CHUNK_SIZE {
+            return vec![Rc::new(Node::Leaf(Leaf::from(new_text.as_str())))];
+        }
+
         Self::split_text_to_leaves(&new_text)
     }
 
