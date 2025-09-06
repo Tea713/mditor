@@ -16,6 +16,13 @@ fn bench_creation(c: &mut Criterion) {
             })
         });
 
+        group.bench_with_input(BenchmarkId::new("ropey", size), size, |b, _| {
+            b.iter(|| {
+                let ropey = ropey::Rope::from_str(black_box(text.as_str()));
+                black_box(ropey)
+            });
+        });
+
         group.bench_with_input(BenchmarkId::new("string", size), size, |b, _| {
             b.iter(|| {
                 let string = black_box(text.clone());
@@ -46,6 +53,17 @@ fn bench_insert_operations(c: &mut Criterion) {
             )
         });
 
+        group.bench_with_input(BenchmarkId::new("ropey_beginning", size), size, |b, _| {
+            b.iter_batched(
+                || ropey::Rope::from(text.as_str()),
+                |mut ropey| {
+                    ropey.insert(black_box(0), black_box(insert_text));
+                    black_box(ropey);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
         group.bench_with_input(BenchmarkId::new("string_beginning", size), size, |b, _| {
             b.iter_batched(
                 || text.clone(),
@@ -68,6 +86,17 @@ fn bench_insert_operations(c: &mut Criterion) {
             )
         });
 
+        group.bench_with_input(BenchmarkId::new("ropey_middle", size), size, |b, _| {
+            b.iter_batched(
+                || ropey::Rope::from(text.as_str()),
+                |mut ropey| {
+                    ropey.insert(black_box(size / 2), black_box(insert_text));
+                    black_box(ropey);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
         group.bench_with_input(BenchmarkId::new("string_middle", size), size, |b, _| {
             b.iter_batched(
                 || text.clone(),
@@ -85,6 +114,17 @@ fn bench_insert_operations(c: &mut Criterion) {
                 |mut rope| {
                     rope.insert(black_box(*size), black_box(insert_text));
                     black_box(rope);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
+        group.bench_with_input(BenchmarkId::new("ropey_end", size), size, |b, _| {
+            b.iter_batched(
+                || ropey::Rope::from(text.as_str()),
+                |mut ropey| {
+                    ropey.insert(black_box(*size), black_box(insert_text));
+                    black_box(ropey);
                 },
                 criterion::BatchSize::SmallInput,
             )
@@ -124,6 +164,17 @@ fn bench_delete_operations(c: &mut Criterion) {
             )
         });
 
+        group.bench_with_input(BenchmarkId::new("ropey_beginning", size), size, |b, _| {
+            b.iter_batched(
+                || ropey::Rope::from(text.as_str()),
+                |mut ropey| {
+                    ropey.remove(black_box(0..delete_size));
+                    black_box(ropey);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
         group.bench_with_input(BenchmarkId::new("string_beginning", size), size, |b, _| {
             b.iter_batched(
                 || text.clone(),
@@ -142,6 +193,17 @@ fn bench_delete_operations(c: &mut Criterion) {
                 || Rope::from(text.as_str()),
                 |mut rope| {
                     rope.delete(black_box(start..end));
+                    black_box(rope);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
+        group.bench_with_input(BenchmarkId::new("ropey_middle", size), size, |b, _| {
+            b.iter_batched(
+                || ropey::Rope::from(text.as_str()),
+                |mut rope| {
+                    rope.remove(black_box(start..end));
                     black_box(rope);
                 },
                 criterion::BatchSize::SmallInput,
@@ -168,6 +230,7 @@ fn bench_slice_operations(c: &mut Criterion) {
     for size in [10_000, 100_000].iter() {
         let text = "a".repeat(*size);
         let rope = Rope::from(text.as_str());
+        let ropey = ropey::Rope::from_str(text.as_str());
 
         group.throughput(Throughput::Elements(*size as u64 / 4));
 
@@ -177,6 +240,13 @@ fn bench_slice_operations(c: &mut Criterion) {
         group.bench_with_input(BenchmarkId::new("rope", size), &rope, |b, rope| {
             b.iter(|| {
                 let slice = rope.slice(black_box(start..end));
+                black_box(slice);
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("ropey", size), &ropey, |b, ropey| {
+            b.iter(|| {
+                let slice = ropey.slice(black_box(start..end));
                 black_box(slice);
             })
         });
