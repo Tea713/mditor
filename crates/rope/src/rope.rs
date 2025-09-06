@@ -72,20 +72,16 @@ impl Rope {
         let mut string = String::with_capacity(self.len());
         let mut queue: VecDeque<Rc<Node>> = VecDeque::new();
         queue.push_back(Rc::clone(&self.node));
-        while !queue.is_empty() {
-            if let Some(node) = queue.pop_front() {
-                match node.as_ref() {
-                    Node::Branch(branch) => {
-                        for child in branch.children().iter() {
-                            queue.push_back(Rc::clone(child));
-                        }
-                    }
-                    Node::Leaf(leaf) => {
-                        string.push_str(leaf.as_str());
+        while let Some(node) = queue.pop_front() {
+            match node.as_ref() {
+                Node::Branch(branch) => {
+                    for child in branch.children().iter() {
+                        queue.push_back(Rc::clone(child));
                     }
                 }
-            } else {
-                return String::new();
+                Node::Leaf(leaf) => {
+                    string.push_str(leaf.as_str());
+                }
             }
         }
         string
