@@ -62,6 +62,10 @@ impl Rope {
         ChunkIter::new(self)
     }
 
+    pub fn chars(&self) -> impl Iterator<Item = char> {
+        self.chunks().flat_map(|chunk| chunk.chars())
+    }
+
     pub fn lines(&self) -> impl Iterator<Item = String> {
         self.node.lines()
     }
@@ -139,28 +143,28 @@ impl<'a> fmt::Display for RopeSlice<'a> {
     }
 }
 
-pub struct ChunkIter {
-    stack: Vec<Rc<Node>>,
+pub struct ChunkIter<'a> {
+    stack: Vec<&'a Node>,
 }
 
-impl ChunkIter {
-    fn new(rope: &Rope) -> Self {
+impl<'a> ChunkIter<'a> {
+    fn new(rope: &'a Rope) -> Self {
         let mut iter = Self { stack: Vec::new() };
-        iter.stack.push(Rc::clone(&rope.node));
+        iter.stack.push(&rope.node);
         iter
     }
 }
 
-impl Iterator for ChunkIter {
-    type Item = String;
+impl<'a> Iterator for ChunkIter<'a> {
+    type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(node) = self.stack.pop() {
-            match node.as_ref() {
-                Node::Leaf(leaf) => return Some(leaf.as_str().to_string()),
+            match node {
+                Node::Leaf(leaf) => return Some(leaf.as_str()),
                 Node::Branch(branch) => {
                     for child in branch.children().iter().rev() {
-                        self.stack.push(Rc::clone(child));
+                        self.stack.push(child);
                     }
                 }
             }
@@ -174,6 +178,62 @@ mod tests {
     use super::*;
 
     // TODO: should probably manually reduce the number of test while making tests more high quality, maybe introduce some randomness?
+
+    #[test]
+    fn chars_iter() {
+        // Test basic ASCII text
+        let text = "Hello, World!";
+        let rope = Rope::from(text);
+        let collected_chars: Vec<char> = rope.chars().collect();
+        let expected_chars: Vec<char> = text.chars().collect();
+        assert_eq!(collected_chars, expected_chars);
+
+        // Test empty rope
+        let empty_rope = Rope::new();
+        let empty_chars: Vec<char> = empty_rope.chars().collect();
+        assert_eq!(empty_chars, Vec::<char>::new());
+
+        // Test multiline text
+        let multiline_text = "Line 1\nLine 2\nLine 3";
+        let multiline_rope = Rope::from(multiline_text);
+        let multiline_chars: Vec<char> = multiline_rope.chars().collect();
+        let expected_multiline: Vec<char> = multiline_text.chars().collect();
+        assert_eq!(multiline_chars, expected_multiline);
+
+        // Test Unicode characters
+        let unicode_text = "Hello 🌍 World! 你好 🦀";
+        let unicode_rope = Rope::from(unicode_text);
+        let unicode_chars: Vec<char> = unicode_rope.chars().collect();
+        let expected_unicode: Vec<char> = unicode_text.chars().collect();
+        assert_eq!(unicode_chars, expected_unicode);
+
+        // Test complex emojis (multi-codepoint)
+        let emoji_text = "👨‍👩‍👧‍👦 Family 🏳️‍🌈 Pride";
+        let emoji_rope = Rope::from(emoji_text);
+        let emoji_chars: Vec<char> = emoji_rope.chars().collect();
+        let expected_emoji: Vec<char> = emoji_text.chars().collect();
+        assert_eq!(emoji_chars, expected_emoji);
+
+        // Test modified rope (after insertion/deletion)
+        let mut modified_rope = Rope::from("Hello");
+        modified_rope.insert(5, ", World!");
+        let modified_chars: Vec<char> = modified_rope.chars().collect();
+        let expected_modified: Vec<char> = "Hello, World!".chars().collect();
+        assert_eq!(modified_chars, expected_modified);
+
+        // Test that iterator count matches rope length
+        let test_text = "Test with various chars: 123 🎉 αβγ";
+        let count_rope = Rope::from(test_text);
+        let char_count = count_rope.chars().count();
+        assert_eq!(char_count, test_text.chars().count());
+
+        // Test iterator behavior with nth() method
+        let nth_text = "abcdef";
+        let nth_rope = Rope::from(nth_text);
+        let mut chars_iter = nth_rope.chars();
+        assert_eq!(chars_iter.nth(2), Some('c'));
+        assert_eq!(chars_iter.next(), Some('d'));
+    }
 
     #[test]
     fn lines_iter() {

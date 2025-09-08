@@ -249,7 +249,7 @@ pub struct Branch {
     height: usize,
     length: usize,
     keys: Vec<usize>,
-    children: Vec<Rc<Node>>,
+    pub children: Vec<Rc<Node>>,
 }
 
 impl Branch {
@@ -265,18 +265,18 @@ impl Branch {
         self.new_lines
     }
 
-    pub fn children(&self) -> Vec<Rc<Node>> {
-        self.children.clone()
+    pub fn children(&self) -> &Vec<Rc<Node>> {
+        &self.children
     }
 
-    // pub fn keys(&self) -> Vec<usize> {
-    //     self.keys.clone()
-    // }
+    pub fn keys(&self) -> &Vec<usize> {
+        &self.keys
+    }
 
     // return the index of the child and the real index in the child
     pub fn find_child_by_index(&self, index: usize) -> (usize, usize) {
         let mut offset = 0;
-        for (pos, key) in self.keys.iter().enumerate() {
+        for (pos, key) in self.keys().iter().enumerate() {
             if index < *key {
                 return (pos, index - offset);
             };
@@ -290,7 +290,7 @@ impl Branch {
         let mut result: Vec<(usize, Range<usize>)> = Vec::new();
         let mut start: usize = 0;
         let mut end: usize;
-        for (pos, key) in self.keys.iter().enumerate() {
+        for (pos, key) in self.keys().iter().enumerate() {
             end = *key;
             if range.start < end && start < range.end {
                 let real_range: Range<usize> =
