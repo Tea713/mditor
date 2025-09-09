@@ -66,8 +66,8 @@ impl Rope {
         self.chunks().flat_map(|chunk| chunk.chars())
     }
 
-    pub fn lines(&self) -> impl Iterator<Item = String> {
-        self.node.lines()
+    pub fn lines(&self) -> LineIter {
+        LineIter::new(self)
     }
 
     // TODO: lines, columnes conversion to integrate to editor
@@ -170,6 +170,75 @@ impl<'a> Iterator for ChunkIter<'a> {
             }
         }
         None
+    }
+}
+
+pub struct LineIter<'a> {
+    rope: &'a Rope,
+    chunk_iter: ChunkIter<'a>,
+    current_chunk: Option<&'a str>,
+    chunk_position: usize,
+    buffer: String,
+}
+
+impl<'a> LineIter<'a> {
+    fn new(rope: &'a Rope) -> Self {
+        Self {
+            rope,
+            chunk_iter: rope.chunks(),
+            current_chunk: None,
+            chunk_position: 0,
+            buffer: String::new(),
+        }
+    }
+}
+
+impl<'a> Iterator for LineIter<'a> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.current_chunk.is_none() {
+                self.current_chunk = self.chunk_iter.next();
+                self.chunk_position = 0;
+            }
+
+            let chunk = match self.current_chunk {
+                Some(chunk) => chunk,
+                None => {
+                    if self.buffer.is_empty() {
+                        return None;
+                    } else {
+                        return Some(std::mem::take(&mut self.buffer));
+                    }
+                }
+            };
+
+            let remaining = &chunk[self.chunk_position..];
+            if let Some(newline_pos) = remaining.find('\n') {
+                self.buffer.push_str(&remaining[..newline_pos]);
+                self.chunk_position += newline_pos + 1;
+                if self.chunk_position >= chunk.len() {
+                    self.current_chunk = None;
+                }
+
+                return Some(std::mem::take(&mut self.buffer));
+            } else {
+                self.buffer.push_str(remaining);
+                self.current_chunk = None;
+            }
+        }
+    }
+
+    fn collect<B: FromIterator<Self::Item>>(self) -> B
+    where
+        Self: Sized,
+    {
+        let mut res: Vec<String> = Vec::new();
+        for line in self.rope.lines() {
+            res.push(line);
+        }
+        res.into_iter().collect()
     }
 }
 
