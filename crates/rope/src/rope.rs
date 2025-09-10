@@ -1,7 +1,6 @@
 mod node;
 
 use node::Node;
-use std::collections::VecDeque;
 use std::ops::Range;
 use std::rc::Rc;
 use std::{cmp, fmt};
@@ -73,22 +72,11 @@ impl Rope {
     // TODO: lines, columnes conversion to integrate to editor
 
     pub fn collect_leaves(&self) -> String {
-        let mut string = String::with_capacity(self.len());
-        let mut queue: VecDeque<Rc<Node>> = VecDeque::new();
-        queue.push_back(Rc::clone(&self.node));
-        while let Some(node) = queue.pop_front() {
-            match node.as_ref() {
-                Node::Branch(branch) => {
-                    for child in branch.children().iter() {
-                        queue.push_back(Rc::clone(child));
-                    }
-                }
-                Node::Leaf(leaf) => {
-                    string.push_str(leaf.as_str());
-                }
-            }
+        let mut result = String::with_capacity(self.len());
+        for chunk in self.chunks() {
+            result.push_str(chunk);
         }
-        string
+        result
     }
 }
 
