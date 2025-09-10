@@ -101,8 +101,8 @@ impl Node {
             return parents;
         }
 
-        let num_parents = (children.len() as f64 / TREE_ORDER as f64).ceil() as usize;
-        let parent_capacity = (children.len() as f64 / num_parents as f64).ceil() as usize;
+        let num_parents = children.len().div_ceil(TREE_ORDER);
+        let parent_capacity = children.len().div_ceil(num_parents);
 
         for chunk in children.chunks(parent_capacity) {
             let branch_children = chunk.to_vec();
@@ -416,8 +416,8 @@ impl Leaf {
         let mut leaves: Vec<Rc<Node>> = Vec::new();
         let mut cursor = GraphemeCursor::new(0, text.len(), true);
 
-        let num_split = (text.len() as f64 / MAX_CHUNK_SIZE as f64).ceil() as usize;
-        let chunk_size = (text.len() as f64 / num_split as f64).ceil() as usize;
+        let num_chunks = text.len().div_ceil(MAX_CHUNK_SIZE);
+        let chunk_size = text.len().div_ceil(num_chunks);
 
         while cursor.cur_cursor() < text.len() {
             let start = cursor.cur_cursor();
