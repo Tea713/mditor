@@ -1,7 +1,7 @@
 use std::{cmp, ops::Range, rc::Rc};
 use unicode_segmentation::GraphemeCursor;
 
-pub const MAX_CHUNK_SIZE: usize = if cfg!(test) { 8 } else { 64 };
+pub const MAX_CHUNK_SIZE: usize = if cfg!(test) { 16 } else { 128 };
 pub const TREE_ORDER: usize = 16;
 
 #[derive(Debug, Clone)]
@@ -243,14 +243,13 @@ impl Branch {
 
     // return the index of the child and the real index in the child
     pub fn find_child_by_index(&self, index: usize) -> (usize, usize) {
-        let mut offset = 0;
-        for (pos, key) in self.keys().iter().enumerate() {
-            if index < *key {
-                return (pos, index - offset);
-            };
-            offset = *key;
+        match self.keys().binary_search(&index) {
+            Ok(pos) => (pos + 1, index - self.keys()[pos]),
+            Err(pos) => {
+                let offset = if pos == 0 { 0 } else { self.keys()[pos - 1] };
+                (pos, index - offset)
+            }
         }
-        (self.children.len() - 1, index - offset)
     }
 
     // return the indexes of the children and the real ranges in the them
