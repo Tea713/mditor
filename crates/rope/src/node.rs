@@ -95,14 +95,13 @@ impl Node {
 
     // create parent branch(es) for node(s)
     pub fn create_parent_branches(children: &[Rc<Node>]) -> Vec<Rc<Node>> {
-        let mut parents: Vec<Rc<Node>> = Vec::new();
-
         if children.is_empty() {
-            return parents;
+            return Vec::new();
         }
 
         let num_parents = children.len().div_ceil(TREE_ORDER);
         let parent_capacity = children.len().div_ceil(num_parents);
+        let mut parents: Vec<Rc<Node>> = Vec::with_capacity(num_parents);
 
         for chunk in children.chunks(parent_capacity) {
             let branch_children = chunk.to_vec();
@@ -254,24 +253,43 @@ impl Branch {
 
     // return the indexes of the children and the real ranges in the them
     pub fn find_children_by_range(&self, range: Range<usize>) -> Vec<(usize, Range<usize>)> {
-        let mut result: Vec<(usize, Range<usize>)> = Vec::new();
-        let mut start: usize = 0;
-        let mut end: usize;
-        for (pos, key) in self.keys().iter().enumerate() {
-            end = *key;
-            if range.start < end && start < range.end {
-                let real_range: Range<usize> =
-                    (cmp::max(range.start, start) - start)..(cmp::min(range.end, end) - start);
-                result.push((pos, real_range));
+        if range.is_empty() {
+            return Vec::new();
+        }
+
+        let start_child = match self.keys.binary_search(&range.start) {
+            Ok(pos) => pos + 1,
+            Err(pos) => pos,
+        };
+
+        let end_child = match self.keys.binary_search(&range.end) {
+            Ok(pos) => pos + 1,
+            Err(pos) => pos.min(self.children.len() - 1),
+        };
+
+        let mut result = Vec::with_capacity(end_child - start_child + 1);
+
+        let mut offset = if start_child == 0 {
+            0
+        } else {
+            self.keys[start_child - 1]
+        };
+
+        for i in start_child..=end_child {
+            let child_end = if i < self.keys.len() {
+                self.keys[i]
+            } else {
+                self.length
+            };
+
+            if range.start < child_end && offset < range.end {
+                let real_range = (range.start.saturating_sub(offset))
+                    ..(range.end.saturating_sub(offset).min(child_end - offset));
+                result.push((i, real_range));
             }
-            start = end;
+            offset = child_end;
         }
-        end = self.len();
-        if range.start < end && start < range.end {
-            let real_range: Range<usize> =
-                (cmp::max(range.start, start) - start)..(cmp::min(range.end, end) - start);
-            result.push((self.children.len() - 1, real_range));
-        }
+
         result
     }
 
@@ -412,11 +430,10 @@ impl Leaf {
             return Vec::new();
         }
 
-        let mut leaves: Vec<Rc<Node>> = Vec::new();
         let mut cursor = GraphemeCursor::new(0, text.len(), true);
-
         let num_chunks = text.len().div_ceil(MAX_CHUNK_SIZE);
         let chunk_size = text.len().div_ceil(num_chunks);
+        let mut leaves: Vec<Rc<Node>> = Vec::with_capacity(num_chunks);
 
         while cursor.cur_cursor() < text.len() {
             let start = cursor.cur_cursor();
