@@ -217,7 +217,7 @@ pub struct Branch {
     height: usize,
     length: usize,
     keys: Vec<usize>,
-    pub children: Vec<Rc<Node>>,
+    children: Vec<Rc<Node>>,
 }
 
 impl Branch {
