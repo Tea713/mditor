@@ -162,7 +162,6 @@ impl<'a> Iterator for ChunkIter<'a> {
 }
 
 pub struct LineIter<'a> {
-    rope: &'a Rope,
     chunk_iter: ChunkIter<'a>,
     current_chunk: Option<&'a str>,
     chunk_position: usize,
@@ -172,7 +171,6 @@ pub struct LineIter<'a> {
 impl<'a> LineIter<'a> {
     fn new(rope: &'a Rope) -> Self {
         Self {
-            rope,
             chunk_iter: rope.chunks(),
             current_chunk: None,
             chunk_position: 0,
@@ -216,17 +214,6 @@ impl<'a> Iterator for LineIter<'a> {
                 self.current_chunk = None;
             }
         }
-    }
-
-    fn collect<B: FromIterator<Self::Item>>(self) -> B
-    where
-        Self: Sized,
-    {
-        let mut res: Vec<String> = Vec::new();
-        for line in self.rope.lines() {
-            res.push(line);
-        }
-        res.into_iter().collect()
     }
 }
 
