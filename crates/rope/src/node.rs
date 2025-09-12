@@ -295,14 +295,14 @@ impl Branch {
 
     // recursively find the correct child to insert into and create new nodes while keeping unaffected nodes
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
+        if text.is_empty() {
+            return vec![Rc::new(Node::Branch(self.clone()))];
+        }
+
         let (insert_index, index_in_child) = self.find_child_by_index(index);
         let target_child = &self.children[insert_index];
 
         let new_children = target_child.insert_recursive(index_in_child, text);
-
-        if new_children.len() == 1 && Rc::ptr_eq(&new_children[0], target_child) {
-            return vec![Rc::new(Node::Branch(self.clone()))];
-        }
 
         let mut children = Vec::with_capacity(self.children.len() - 1 + new_children.len());
         children.extend_from_slice(&self.children[..insert_index]);
