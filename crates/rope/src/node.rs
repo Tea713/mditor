@@ -1,5 +1,4 @@
 use std::{cmp, ops::Range, rc::Rc};
-use unicode_segmentation::GraphemeCursor;
 
 pub const MAX_CHUNK_SIZE: usize = if cfg!(test) { 16 } else { 128 };
 pub const TREE_ORDER: usize = 16;
@@ -430,22 +429,20 @@ impl Leaf {
             return Vec::new();
         }
 
-        let mut cursor = GraphemeCursor::new(0, text.len(), true);
+        let mut cursor = 0;
         let num_chunks = text.len().div_ceil(MAX_CHUNK_SIZE);
         let chunk_size = text.len().div_ceil(num_chunks);
         let mut leaves: Vec<Rc<Node>> = Vec::with_capacity(num_chunks);
 
-        while cursor.cur_cursor() < text.len() {
-            let start = cursor.cur_cursor();
-            cursor.set_cursor(cmp::min(start + chunk_size, text.len()));
+        while cursor < text.len() {
+            let start = cursor;
+            cursor = cmp::min(start + chunk_size, text.len());
 
-            while !text.is_char_boundary(cursor.cur_cursor())
-                || !cursor.is_boundary(text, 0).unwrap_or(false)
-            {
-                cursor.set_cursor(cursor.cur_cursor() + 1);
+            while !text.is_char_boundary(cursor) {
+                cursor += 1;
             }
 
-            let end = cursor.cur_cursor();
+            let end = cursor;
             let chunk = &text[start..end];
             let new_leaf = Rc::new(Node::Leaf(Leaf::from(chunk)));
             leaves.push(new_leaf);
