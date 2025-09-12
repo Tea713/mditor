@@ -111,7 +111,7 @@ pub struct RopeSlice<'a> {
 
 impl<'a> RopeSlice<'a> {
     pub fn len(&self) -> usize {
-        self.end - self.start + 1
+        self.end - self.start
     }
 
     pub fn is_empty(&self) -> bool {
