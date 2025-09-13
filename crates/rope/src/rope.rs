@@ -32,6 +32,9 @@ impl Rope {
     }
 
     pub fn insert(&mut self, index: usize, text: &str) {
+        if text.is_empty() {
+            return;
+        }
         self.node = self.node.insert(cmp::min(index, self.len()), text);
     }
 

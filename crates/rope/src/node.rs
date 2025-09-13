@@ -47,10 +47,10 @@ impl Node {
         }
     }
 
-    pub fn children(&self) -> Vec<Rc<Node>> {
+    pub fn children(&self) -> &[Rc<Node>] {
         match self {
-            Self::Branch(branch) => branch.children.clone(),
-            Self::Leaf(_) => Vec::new(),
+            Self::Branch(branch) => &branch.children,
+            Self::Leaf(_) => &[],
         }
     }
 
@@ -145,15 +145,15 @@ impl Node {
     // remove nodes that are not necessary for the tree to have all of its data by traversing to the left
     // currently just used after deletion when it leaves a series of nodes from root to a certain nodes that each have a single child
     pub fn truncate_root(nodes: &[Rc<Node>]) -> Rc<Node> {
-        let mut curr_nodes = nodes.to_vec();
+        let mut curr_nodes = nodes;
         while !curr_nodes.is_empty() {
-            let root = Rc::clone(curr_nodes.first().unwrap());
+            let root = curr_nodes.first().unwrap();
             if root.is_leaf() {
-                return root;
+                return Rc::clone(root);
             }
             let children = root.children();
             if children.len() > 1 {
-                return root;
+                return Rc::clone(root);
             }
             curr_nodes = children;
         }
@@ -294,10 +294,6 @@ impl Branch {
 
     // recursively find the correct child to insert into and create new nodes while keeping unaffected nodes
     pub fn insert(&self, index: usize, text: &str) -> Vec<Rc<Node>> {
-        if text.is_empty() {
-            return vec![Rc::new(Node::Branch(self.clone()))];
-        }
-
         let (insert_index, index_in_child) = self.find_child_by_index(index);
         let target_child = &self.children[insert_index];
 
@@ -345,7 +341,7 @@ impl Branch {
         let mut need_restructure = false;
         let mut grandchildren: Vec<Rc<Node>> = Vec::new();
         for child in &children {
-            grandchildren.extend(child.children());
+            grandchildren.extend(child.children().iter().cloned());
             if child.children().len() < TREE_ORDER / 2 {
                 need_restructure = true;
             }
@@ -376,7 +372,7 @@ impl Branch {
         let mut need_restructure = false;
         let mut grandchildren: Vec<Rc<Node>> = Vec::new();
         for child in &children_to_include {
-            grandchildren.extend(child.children());
+            grandchildren.extend(child.children().iter().cloned());
             if child.children().len() < TREE_ORDER / 2 {
                 need_restructure = true;
             }
