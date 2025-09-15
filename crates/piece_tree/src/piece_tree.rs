@@ -779,24 +779,495 @@ impl PieceTree {
             cur = Self::parent_of(&n);
         }
     }
+
+    fn rightmost(&self, mut x: NodeRef) -> NodeRef {
+        loop {
+            let right_opt = { x.borrow().right.clone() };
+            match right_opt {
+                Some(r) => x = r,
+                None => return x,
+            }
+        }
+    }
+
+    // Find node at document offset.
+    // Returns (node, remainder within node.piece, node_start_offset)
+    fn node_at(&self, mut offset: usize) -> Option<(NodeRef, usize, usize)> {
+        let mut x_opt = self.root.clone();
+        let mut node_start_offset = 0usize;
+
+        while let Some(x) = x_opt {
+            let (size_left, piece_len, left, right) = {
+                let nb = x.borrow();
+                (
+                    nb.size_left,
+                    nb.piece.length,
+                    nb.left.clone(),
+                    nb.right.clone(),
+                )
+            };
+
+            if size_left > offset {
+                x_opt = left;
+            } else if size_left + piece_len >= offset {
+                node_start_offset += size_left;
+                let remainder = offset - size_left;
+                return Some((x.clone(), remainder, node_start_offset));
+            } else {
+                offset -= size_left + piece_len;
+                node_start_offset += size_left + piece_len;
+                x_opt = right;
+            }
+        }
+        None
+    }
+
+    // Convert a remainder within node.piece to its BufferCursor within the backing buffer
+    fn position_in_buffer(&self, node: &NodeRef, remainder: usize) -> BufferCursor {
+        let nb = node.borrow();
+        let piece = &nb.piece;
+        let buf_idx = piece.buffer_idx;
+        let line_starts = &self.buffers[buf_idx].line_starts;
+
+        let start_offset = line_starts[piece.start.line] + piece.start.column;
+        let end_offset = line_starts[piece.end.line] + piece.end.column;
+        let target = (start_offset + remainder).min(end_offset);
+
+        let mut low = piece.start.line;
+        let mut high = piece.end.line;
+        let mut mid: usize = low;
+        // binary search target in [low..=high]
+        while low <= high {
+            mid = (low + high) / 2;
+            let mid_start = line_starts[mid];
+            if mid == high {
+                break;
+            }
+            let mid_stop = line_starts[mid + 1];
+            if target < mid_start {
+                if mid == 0 {
+                    break;
+                }
+                high = mid - 1;
+            } else if target >= mid_stop {
+                low = mid + 1;
+            } else {
+                break;
+            }
+        }
+
+        BufferCursor {
+            line: mid,
+            column: target - line_starts[mid],
+        }
+    }
+
+    // Absolute offset in buffer for a given cursor
+    fn offset_in_buffer(&self, buffer_idx: usize, cursor: BufferCursor) -> usize {
+        let line_starts = &self.buffers[buffer_idx].line_starts;
+        line_starts[cursor.line] + cursor.column
+    }
+
+    // Count line breaks between start and end cursors in a specific buffer (CR, LF, CRLF -> 1)
+    fn get_line_feed_cnt(
+        &self,
+        buffer_idx: usize,
+        start: BufferCursor,
+        end: BufferCursor,
+    ) -> usize {
+        // mirror the TS logic:
+        // If end.column == 0 => count complete lines between start.line and end.line
+        if end.column == 0 {
+            return end.line.saturating_sub(start.line);
+        }
+
+        let line_starts = &self.buffers[buffer_idx].line_starts;
+        if end.line == line_starts.len() - 1 {
+            // No \n after end
+            return end.line.saturating_sub(start.line);
+        }
+
+        let next_line_start_offset = line_starts[end.line + 1];
+        let end_offset = line_starts[end.line] + end.column;
+        if next_line_start_offset > end_offset + 1 {
+            // More than one character after end => cannot be '\n'
+            return end.line.saturating_sub(start.line);
+        }
+
+        // next_line_start_offset == end_offset + 1 => character at end_offset is '\n'.
+        // check previous char for '\r'
+        let buffer = &self.buffers[buffer_idx].buffer;
+        if end_offset > 0 && buffer.as_bytes()[end_offset - 1] == b'\r' {
+            return end.line.saturating_sub(start.line) + 1;
+        }
+        end.line.saturating_sub(start.line)
+    }
+
+    // Build pieces for a given text. This baseline creates new backing buffers (not buffer 0)
+    // to avoid cross-boundary CRLF complexities in the mutable change buffer.
+    fn create_new_pieces(&mut self, mut text: &str) -> Vec<Piece> {
+        const AVG_BUF: usize = 65535;
+        let mut pieces: Vec<Piece> = Vec::new();
+
+        while !text.is_empty() {
+            let take = text.len().min(AVG_BUF);
+            // Avoid splitting right after '\r'
+            let mut split = take;
+            if split < text.len() && text.as_bytes()[split - 1] == b'\r' {
+                split -= 1;
+            }
+            if split == 0 {
+                split = take; // worst case, just take
+            }
+
+            let chunk = &text[..split];
+            let line_starts = StringBuffer::create_line_starts(chunk);
+            let buf_idx = self.buffers.len();
+            self.buffers.push(StringBuffer {
+                buffer: chunk.to_string(),
+                line_starts: line_starts.clone(),
+            });
+
+            let end_line = line_starts.len() - 1;
+            let end_col = chunk.len() - line_starts[end_line];
+            let piece = Piece::new(
+                buf_idx,
+                BufferCursor::new(0, 0),
+                BufferCursor::new(end_line, end_col),
+                chunk.len(),                         // length in bytes
+                line_starts.len().saturating_sub(1), // number of line breaks
+            );
+            pieces.push(piece);
+
+            text = &text[split..];
+        }
+
+        pieces
+    }
+
+    fn rb_insert_left(&mut self, node: Option<NodeRef>, piece: Piece) -> Option<NodeRef> {
+        let z = Rc::new(RefCell::new(TreeNode::new(piece)));
+        if self.root.is_none() {
+            z.borrow_mut().color = NodeColor::Black;
+            self.root = Some(z.clone());
+            return Some(z);
+        }
+
+        if let Some(parent_rc) = node {
+            let mut parent_borrow = parent_rc.borrow_mut();
+            if parent_borrow.left.is_none() {
+                parent_borrow.left = Some(z.clone());
+                drop(parent_borrow);
+                z.borrow_mut().parent = Some(Rc::downgrade(&parent_rc));
+            } else {
+                let left_child = parent_borrow.left.clone().expect("left child existed");
+                drop(parent_borrow);
+                let prev = self.rightmost(left_child);
+                {
+                    let mut prev_b = prev.borrow_mut();
+                    prev_b.right = Some(z.clone());
+                }
+                z.borrow_mut().parent = Some(Rc::downgrade(&prev));
+            }
+        } else {
+            // If node is None but tree non-empty, insert to the left-most position.
+            let mut x = self.root.clone().expect("root exists");
+            loop {
+                let left_opt = { x.borrow().left.clone() };
+                match left_opt {
+                    Some(l) => x = l,
+                    None => {
+                        {
+                            let mut xb = x.borrow_mut();
+                            xb.left = Some(z.clone());
+                        }
+                        z.borrow_mut().parent = Some(Rc::downgrade(&x));
+                        break;
+                    }
+                }
+            }
+        }
+
+        self.fix_insert(z.clone());
+        Some(z)
+    }
+
+    fn piece_from_range(&self, buffer_idx: usize, start: BufferCursor, end: BufferCursor) -> Piece {
+        let start_off = self.offset_in_buffer(buffer_idx, start);
+        let end_off = self.offset_in_buffer(buffer_idx, end);
+        let length = end_off.saturating_sub(start_off);
+        let lf = self.get_line_feed_cnt(buffer_idx, start, end);
+        Piece::new(buffer_idx, start, end, length, lf)
+    }
+
+    fn delete_node_tail(&mut self, node: &NodeRef, new_end: BufferCursor) {
+        let (buf, start) = {
+            let nb = node.borrow();
+            (nb.piece.buffer_idx, nb.piece.start)
+        };
+        let new_piece = self.piece_from_range(buf, start, new_end);
+        {
+            let mut nb = node.borrow_mut();
+            nb.piece = new_piece;
+        }
+        self.recompute_tree_metadata(node.clone());
+    }
+
+    fn delete_node_head(&mut self, node: &NodeRef, new_start: BufferCursor) {
+        let (buf, end) = {
+            let nb = node.borrow();
+            (nb.piece.buffer_idx, nb.piece.end)
+        };
+        let new_piece = self.piece_from_range(buf, new_start, end);
+        {
+            let mut nb = node.borrow_mut();
+            nb.piece = new_piece;
+        }
+        self.recompute_tree_metadata(node.clone());
+    }
+
+    fn shrink_node(
+        &mut self,
+        node: &NodeRef,
+        start: BufferCursor,
+        end: BufferCursor,
+    ) -> Option<NodeRef> {
+        // node keeps left segment [piece.start, start)
+        let (buf, old_start, old_end) = {
+            let nb = node.borrow();
+            (nb.piece.buffer_idx, nb.piece.start, nb.piece.end)
+        };
+
+        // Left piece
+        let left_piece = self.piece_from_range(buf, old_start, start);
+        {
+            let mut nb = node.borrow_mut();
+            nb.piece = left_piece;
+        }
+        self.recompute_tree_metadata(node.clone());
+
+        // Right piece
+        let right_piece = self.piece_from_range(buf, end, old_end);
+        if right_piece.length > 0 {
+            return self.rb_insert_right(Some(node.clone()), right_piece);
+        }
+        None
+    }
+
+    // ---------- Public API: insert/delete (baseline) ----------
+    // Insert `value` at document offset `offset`
+    pub fn insert(&mut self, mut offset: usize, value: &str) {
+        if value.is_empty() {
+            return;
+        }
+
+        // clamp
+        if offset > self.length {
+            offset = self.length;
+        }
+
+        let new_pieces = self.create_new_pieces(value);
+
+        if self.root.is_none() {
+            // Tree empty: insert all pieces to the right chain
+            let mut last: Option<NodeRef> = None;
+            for p in new_pieces {
+                last = if let Some(prev) = last {
+                    self.rb_insert_right(Some(prev), p)
+                } else {
+                    self.rb_insert_left(None, p)
+                };
+            }
+            self.compute_buffer_metadata();
+            return;
+        }
+
+        // Find target node
+        let (node, remainder, node_start_offset) = match self.node_at(offset) {
+            Some(t) => t,
+            None => {
+                // append at end
+                let rightmost = self.root.clone().map(|r| self.rightmost(r)).unwrap();
+                let mut last = Some(rightmost.clone());
+                for p in new_pieces {
+                    last = self.rb_insert_right(last, p);
+                }
+                self.compute_buffer_metadata();
+                return;
+            }
+        };
+
+        let piece_len = { node.borrow().piece.length };
+        if node_start_offset == offset {
+            // insert to the left of node
+            // Insert pieces in order: last piece first to the left to maintain sequence
+            let mut cur_left_of = Some(node.clone());
+            for p in new_pieces.iter().rev() {
+                cur_left_of = self.rb_insert_left(cur_left_of, p.clone());
+            }
+        } else if node_start_offset + piece_len > offset {
+            // Insert in the middle: split node into left and right
+            let split_pos = self.position_in_buffer(&node, remainder);
+
+            // Right part from split_pos to old end
+            let right_piece = {
+                let nb = node.borrow();
+                self.piece_from_range(nb.piece.buffer_idx, split_pos, nb.piece.end)
+            };
+
+            // Left part: truncate node tail to split_pos
+            self.delete_node_tail(&node, split_pos);
+
+            // Insert new pieces after node, then right piece after them
+            let mut last = Some(node.clone());
+            for p in new_pieces {
+                last = self.rb_insert_right(last, p);
+            }
+            if right_piece.length > 0 {
+                self.rb_insert_right(last, right_piece);
+            }
+        } else {
+            // Insert to the right of this node
+            let mut last = Some(node.clone());
+            for p in new_pieces {
+                last = self.rb_insert_right(last, p);
+            }
+        }
+
+        self.compute_buffer_metadata();
+    }
+
+    // Delete `cnt` chars starting at `offset`
+    pub fn delete(&mut self, offset: usize, mut cnt: usize) {
+        if cnt == 0 || self.root.is_none() || offset >= self.length {
+            return;
+        }
+
+        // clamp to end
+        if offset + cnt > self.length {
+            cnt = self.length - offset;
+        }
+
+        // Find start and end positions
+        let (start_node, start_rem, start_node_start) = match self.node_at(offset) {
+            Some(t) => t,
+            None => return,
+        };
+        let end_offset = offset + cnt;
+        let (end_node, end_rem, _end_node_start) = match self.node_at(end_offset) {
+            Some(t) => t,
+            None => {
+                // End exactly at document end: walk to rightmost
+                let last = self.root.clone().map(|r| self.rightmost(r)).unwrap();
+                let last_len = { last.borrow().piece.length };
+                (last, last_len, self.length - last_len)
+            }
+        };
+
+        if Rc::ptr_eq(&start_node, &end_node) {
+            // delete within one node
+            let start_cursor = self.position_in_buffer(&start_node, start_rem);
+            let end_cursor = self.position_in_buffer(&start_node, end_rem);
+
+            if start_node_start == offset && cnt == start_node.borrow().piece.length {
+                // delete entire node -> baseline: make it empty (no RB delete yet)
+                let buf_idx = start_node.borrow().piece.buffer_idx;
+                let empty_piece = self.piece_from_range(buf_idx, start_cursor, start_cursor);
+                {
+                    let mut nb = start_node.borrow_mut();
+                    nb.piece = empty_piece;
+                }
+                self.recompute_tree_metadata(start_node.clone());
+            } else if start_node_start == offset {
+                // delete head
+                self.delete_node_head(&start_node, end_cursor);
+            } else if start_node_start + start_node.borrow().piece.length == end_offset {
+                // delete tail
+                self.delete_node_tail(&start_node, start_cursor);
+            } else {
+                // delete middle => shrink and insert right piece
+                self.shrink_node(&start_node, start_cursor, end_cursor);
+            }
+
+            self.compute_buffer_metadata();
+            return;
+        }
+
+        // Spanning multiple nodes:
+        // 1) trim tail of start node
+        let start_cursor = self.position_in_buffer(&start_node, start_rem);
+        self.delete_node_tail(&start_node, start_cursor);
+
+        // 2) zero out all nodes strictly between start_node and end_node
+        let mut cur_opt = {
+            // successor of start_node
+            // If it has right child, successor is leftmost of right subtree
+            // else climb up to first parent where we are in its left subtree
+            let cur = start_node.clone();
+            // use next()
+            self.next(&cur)
+        };
+        while let Some(cur) = cur_opt.clone() {
+            if Rc::ptr_eq(&cur, &end_node) {
+                break;
+            }
+            // zero out piece
+            let buf_idx = { cur.borrow().piece.buffer_idx };
+            let zero =
+                self.piece_from_range(buf_idx, BufferCursor::new(0, 0), BufferCursor::new(0, 0));
+            {
+                let mut nb = cur.borrow_mut();
+                nb.piece = zero;
+            }
+            self.recompute_tree_metadata(cur.clone());
+
+            cur_opt = self.next(&cur);
+        }
+
+        // 3) trim head of end node
+        let end_cursor = self.position_in_buffer(&end_node, end_rem);
+        // For end node, we need to delete head up to end_cursor
+        let end_start_cursor = {
+            let nb = end_node.borrow();
+            nb.piece.start
+        };
+        self.delete_node_head(&end_node, end_cursor);
+
+        self.compute_buffer_metadata();
+    }
+
+    // inorder successor
+    fn next(&self, node: &NodeRef) -> Option<NodeRef> {
+        if let Some(r) = { node.borrow().right.clone() } {
+            return Some(self.leftmost(r));
+        }
+        // climb up
+        let mut cur = node.clone();
+        while let Some(p) = Self::parent_of(&cur) {
+            let is_left = {
+                let pb = p.borrow();
+                if let Some(ref l) = pb.left {
+                    Rc::ptr_eq(l, &cur)
+                } else {
+                    false
+                }
+            };
+            if is_left {
+                return Some(p);
+            }
+            cur = p;
+        }
+        None
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // #[test]
-    // fn test_basic_operations() {
-    //     let mut tree = PieceTree::new("Hello\nWorld");
-    //     assert_eq!(tree.get_length(), 11);
-    //     assert_eq!(tree.get_line_count(), 2);
-
-    //     tree.insert(5, " Rust");
-    //     assert_eq!(tree.get_text(), "Hello Rust\nWorld");
-
-    //     assert_eq!(tree.get_line(1), "Hello Rust");
-    //     assert_eq!(tree.get_line(2), "World");
-    // }
+    fn doc(tree: &PieceTree) -> String {
+        tree.get_lines_content().join("\n")
+    }
 
     #[test]
     fn lines_basic_unix() {
@@ -858,5 +1329,110 @@ mod tests {
         assert_eq!(tree.get_line_content(2), "b");
         assert_eq!(tree.get_line_content(3), "");
         assert_eq!(tree.get_line_content(4), "");
+    }
+
+    #[test]
+    fn insert_into_empty_and_append() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+
+        // Insert into empty
+        tree.insert(0, "Hello\nWorld");
+        assert_eq!(tree.get_lines_content(), vec!["Hello", "World"]);
+
+        // Insert in the middle (after "Hello")
+        tree.insert(5, " Rust");
+        assert_eq!(tree.get_lines_content(), vec!["Hello Rust", "World"]);
+
+        // Insert at end
+        let end = doc(&tree).len();
+        tree.insert(end, "\n!!!");
+        assert_eq!(tree.get_lines_content(), vec!["Hello Rust", "World", "!!!"]);
+    }
+
+    #[test]
+    fn insert_begin_middle_end_positions() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+
+        // Start with base
+        tree.insert(0, "abc\ndef");
+        assert_eq!(tree.get_lines_content(), vec!["abc", "def"]);
+
+        // Insert at beginning
+        tree.insert(0, ">>");
+        assert_eq!(tree.get_lines_content(), vec![">>abc", "def"]);
+
+        // Insert in the middle (between 'a' and 'b')
+        tree.insert(3, "_MID_"); // positions: 0:>,1:>,2:a,3:b,...
+        assert_eq!(tree.get_lines_content(), vec![">>a_MID_bc", "def"]);
+
+        // Insert at end
+        let end = doc(&tree).len();
+        tree.insert(end, "\nEND");
+        assert_eq!(tree.get_lines_content(), vec![">>a_MID_bc", "def", "END"]);
+    }
+
+    #[test]
+    fn delete_within_single_node_middle() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+
+        tree.insert(0, "Hello\nWorld");
+        assert_eq!(tree.get_lines_content(), vec!["Hello", "World"]);
+
+        // Delete "lo\nWo" starting at offset 3, length 5
+        // "Hello\nWorld" indices: H0 e1 l2 l3 o4 \n5 W6 o7 r8 l9 d10
+        tree.delete(3, 5);
+        assert_eq!(doc(&tree), "Helrld");
+        assert_eq!(tree.get_lines_content(), vec!["Helrld"]);
+    }
+
+    #[test]
+    fn delete_spanning_multiple_nodes() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+
+        // Build three separate nodes by separate inserts
+        tree.insert(0, "foo\n");
+        let end = doc(&tree).len();
+        tree.insert(end, "bar\n");
+        let end = doc(&tree).len();
+        tree.insert(end, "baz");
+
+        assert_eq!(doc(&tree), "foo\nbar\nbaz");
+        assert_eq!(tree.get_lines_content(), vec!["foo", "bar", "baz"]);
+
+        // Delete "o\nbar\n" which spans node boundaries
+        // "foo\nbar\nbaz": f0 o1 o2 \n3 b4 a5 r6 \n7 b8 a9 z10
+        // Delete from offset 2 length 6: indices [2..8)
+        tree.delete(2, 6);
+        assert_eq!(doc(&tree), "fobaz");
+        assert_eq!(tree.get_lines_content(), vec!["fobaz"]);
+
+        // Delete entire remaining content
+        let total = doc(&tree).len();
+        tree.delete(0, total);
+        // An empty document is represented as a single empty line
+        assert_eq!(tree.get_lines_content(), vec![""]);
+    }
+
+    #[test]
+    fn delete_trailing_newline_boundary() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+
+        tree.insert(0, "a\nb\n");
+        assert_eq!(tree.get_lines_content(), vec!["a", "b", ""]);
+
+        // Remove the last '\n'
+        let total = doc(&tree).len(); // "a\nb\n" -> len = 4
+        tree.delete(total - 1, 1);
+        assert_eq!(tree.get_lines_content(), vec!["a", "b"]);
+
+        // Now delete the middle newline
+        // Current doc: "a\nb" -> indices: a0 \n1 b2
+        tree.delete(1, 1);
+        assert_eq!(tree.get_lines_content(), vec!["ab"]);
     }
 }
