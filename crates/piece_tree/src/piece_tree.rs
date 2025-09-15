@@ -1259,6 +1259,176 @@ impl PieceTree {
         }
         None
     }
+
+    // Compute accumulated byte length within a piece up to the given internal line index.
+    // Mirrors TS getAccumulatedValue: if index < 0 => 0; if beyond piece end => piece length; else difference of line starts.
+    fn get_accumulated_value(&self, node: &NodeRef, index: isize) -> usize {
+        if index < 0 {
+            return 0;
+        }
+        let nb = node.borrow();
+        let piece = &nb.piece;
+        let line_starts = &self.buffers[piece.buffer_idx].line_starts;
+        let idx = index as usize;
+        let expected_line_start_index = piece.start.line + idx + 1;
+        if expected_line_start_index > piece.end.line {
+            // up to end of piece
+            return (line_starts[piece.end.line] + piece.end.column)
+                .saturating_sub(line_starts[piece.start.line] + piece.start.column);
+        } else {
+            return line_starts[expected_line_start_index]
+                .saturating_sub(line_starts[piece.start.line] + piece.start.column);
+        }
+    }
+
+    // Given an accumulated byte count within a node's piece, return:
+    // - index: how many line feeds are strictly before that position inside the piece
+    // - remainder: byte remainder within the current (index-th) line
+    fn get_index_of(&self, node: &NodeRef, accumulated_value: usize) -> (usize, usize) {
+        let nb = node.borrow();
+        let piece = &nb.piece;
+        let buf_idx = piece.buffer_idx;
+
+        let start_off = self.offset_in_buffer(buf_idx, piece.start);
+        let end_off = self.offset_in_buffer(buf_idx, piece.end);
+
+        let pos = self.position_in_buffer(node, accumulated_value);
+        let line_cnt = pos.line.saturating_sub(piece.start.line);
+
+        // If we're exactly at the end of the node, check CRLF boundary to adjust index
+        if end_off.saturating_sub(start_off) == accumulated_value {
+            let real_line_cnt = self.get_line_feed_cnt(buf_idx, piece.start, pos);
+            if real_line_cnt != line_cnt {
+                return (real_line_cnt, 0);
+            }
+        }
+
+        (line_cnt, pos.column)
+    }
+
+    // 1-based (line, column) to 0-based offset in the whole document
+    pub fn get_offset_at(&self, mut line_number: usize, column: usize) -> usize {
+        if line_number == 0 {
+            return 0;
+        }
+
+        let mut left_len: usize = 0;
+        let mut x_opt = self.root.clone();
+
+        while let Some(x) = x_opt {
+            let (lf_left, size_left, piece_lf, piece_len, left, right) = {
+                let nb = x.borrow();
+                (
+                    nb.lf_left,
+                    nb.size_left,
+                    nb.piece.line_feed_cnt,
+                    nb.piece.length,
+                    nb.left.clone(),
+                    nb.right.clone(),
+                )
+            };
+
+            // Go left if that subtree can cover the target line
+            if left.is_some() && lf_left + 1 >= line_number {
+                x_opt = left;
+            } else if lf_left + piece_lf + 1 >= line_number {
+                // Target line is inside this node's piece
+                left_len += size_left;
+                // line_number >= 2 here — do signed arithmetic to avoid usize underflow
+                let idx = line_number as isize - lf_left as isize - 2;
+                let acc = self.get_accumulated_value(&x, idx);
+                return left_len + acc + column.saturating_sub(1);
+            } else {
+                // Skip this node and go right
+                line_number = line_number.saturating_sub(lf_left + piece_lf);
+                left_len += size_left + piece_len;
+                x_opt = right;
+            }
+        }
+
+        left_len
+    }
+
+    // 0-based offset to 1-based (line, column) document position
+    pub fn get_position_at(&self, mut offset: usize) -> BufferCursor {
+        let mut x_opt = self.root.clone();
+        let mut lf_cnt: usize = 0;
+        let original_offset = offset;
+
+        while let Some(x) = x_opt {
+            let (size_left, piece_len, lf_left, piece_lf, left, right) = {
+                let nb = x.borrow();
+                (
+                    nb.size_left,
+                    nb.piece.length,
+                    nb.lf_left,
+                    nb.piece.line_feed_cnt,
+                    nb.left.clone(),
+                    nb.right.clone(),
+                )
+            };
+
+            if size_left != 0 && size_left >= offset {
+                x_opt = left;
+            } else if size_left + piece_len >= offset {
+                let (index, remainder) = self.get_index_of(&x, offset - size_left);
+                lf_cnt += lf_left + index;
+                if index == 0 {
+                    // Same line where node starts
+                    let line_start_off = self.get_offset_at(lf_cnt + 1, 1);
+                    let column0 = original_offset.saturating_sub(line_start_off);
+                    return BufferCursor::new(lf_cnt + 1, column0 + 1);
+                }
+                return BufferCursor::new(lf_cnt + 1, remainder + 1);
+            } else {
+                offset = offset.saturating_sub(size_left + piece_len);
+                lf_cnt += lf_left + piece_lf;
+                if right.is_none() {
+                    // last node
+                    let line_start_off = self.get_offset_at(lf_cnt + 1, 1);
+                    let column0 = original_offset
+                        .saturating_sub(offset)
+                        .saturating_sub(line_start_off);
+                    return BufferCursor::new(lf_cnt + 1, column0 + 1);
+                } else {
+                    x_opt = right;
+                }
+            }
+        }
+
+        BufferCursor::new(1, 1)
+    }
+
+    // Get the display length of a line (without EOL)
+    pub fn get_line_length(&self, line_number: usize) -> usize {
+        self.get_line_content(line_number).len()
+    }
+
+    // Get the full document text by concatenating all pieces in-order
+    pub fn get_text(&self) -> String {
+        let mut out = String::new();
+        self.for_each_inorder(|node| {
+            let nb = node.borrow();
+            let piece = &nb.piece;
+            if piece.length == 0 {
+                return true;
+            }
+            let buf_idx = piece.buffer_idx;
+            if buf_idx >= self.buffers.len() {
+                return true;
+            }
+            let buffer = &self.buffers[buf_idx].buffer;
+            let line_starts = &self.buffers[buf_idx].line_starts;
+
+            let start = line_starts[piece.start.line] + piece.start.column;
+            let end = line_starts[piece.end.line] + piece.end.column;
+            if start <= end && end <= buffer.len() {
+                out.push_str(&buffer[start..end]);
+            }
+            true
+        });
+        out
+    }
 }
 
 #[cfg(test)]
@@ -1434,5 +1604,45 @@ mod tests {
         // Current doc: "a\nb" -> indices: a0 \n1 b2
         tree.delete(1, 1);
         assert_eq!(tree.get_lines_content(), vec!["ab"]);
+    }
+
+    #[test]
+    fn get_text_and_line_length() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+        tree.insert(0, "abc\ndef");
+        assert_eq!(tree.get_text(), "abc\ndef");
+        assert_eq!(tree.get_line_length(1), 3);
+        assert_eq!(tree.get_line_length(2), 3);
+        assert_eq!(tree.get_line_length(3), 0);
+    }
+
+    #[test]
+    fn offset_and_position_roundtrip() {
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+        tree.insert(0, "012\n45\n789");
+
+        // Offsets
+        assert_eq!(tree.get_offset_at(1, 1), 0);
+        assert_eq!(tree.get_offset_at(1, 4), 3);
+        assert_eq!(tree.get_offset_at(2, 1), 4);
+        assert_eq!(tree.get_offset_at(2, 3), 6);
+        assert_eq!(tree.get_offset_at(3, 1), 7);
+        assert_eq!(tree.get_offset_at(3, 4), 10);
+
+        // Positions
+        let p = tree.get_position_at(0);
+        assert_eq!((p.line, p.column), (1, 1));
+        let p = tree.get_position_at(3);
+        assert_eq!((p.line, p.column), (1, 4));
+        let p = tree.get_position_at(4);
+        assert_eq!((p.line, p.column), (2, 1));
+        let p = tree.get_position_at(6);
+        assert_eq!((p.line, p.column), (2, 3));
+        let p = tree.get_position_at(7);
+        assert_eq!((p.line, p.column), (3, 1));
+        let p = tree.get_position_at(10);
+        assert_eq!((p.line, p.column), (3, 4));
     }
 }
