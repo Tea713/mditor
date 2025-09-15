@@ -155,8 +155,8 @@ impl PieceTree {
                     chunk.line_starts.len() - 1,
                     chunk.buffer.len() - chunk.line_starts[chunk.line_starts.len() - 1],
                 ),
-                chunk.line_starts.len() - 1,
                 chunk.buffer.len(),
+                chunk.line_starts.len() - 1,
             );
             tree.buffers.push(chunk.clone());
             last_node = tree.rb_insert_right(last_node, piece);
