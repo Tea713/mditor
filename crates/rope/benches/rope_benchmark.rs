@@ -1,4 +1,5 @@
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use piece_tree::{PieceTree, StringBuffer};
 use rope::Rope;
 use std::hint::black_box;
 
@@ -27,6 +28,15 @@ fn bench_creation(c: &mut Criterion) {
             b.iter(|| {
                 let string = black_box(text.clone());
                 black_box(string);
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("piece_tree", size), size, |b, _| {
+            b.iter(|| {
+                let mut chunks: Vec<StringBuffer> = Vec::new();
+                let mut tree = PieceTree::new(chunks.as_mut_slice());
+                tree.insert(black_box(0usize), black_box(text.as_str()));
+                black_box(tree);
             })
         });
     }
@@ -75,6 +85,26 @@ fn bench_insert_operations(c: &mut Criterion) {
             )
         });
 
+        group.bench_with_input(
+            BenchmarkId::new("piece_tree_beginning", size),
+            size,
+            |b, _| {
+                b.iter_batched(
+                    || {
+                        let mut chunks: Vec<StringBuffer> = Vec::new();
+                        let mut tree = PieceTree::new(chunks.as_mut_slice());
+                        tree.insert(0, text.as_str());
+                        tree
+                    },
+                    |mut tree| {
+                        tree.insert(black_box(0usize), black_box(insert_text));
+                        black_box(tree);
+                    },
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        );
+
         group.bench_with_input(BenchmarkId::new("rope_middle", size), size, |b, _| {
             b.iter_batched(
                 || Rope::from(text.as_str()),
@@ -108,6 +138,22 @@ fn bench_insert_operations(c: &mut Criterion) {
             )
         });
 
+        group.bench_with_input(BenchmarkId::new("piece_tree_middle", size), size, |b, _| {
+            b.iter_batched(
+                || {
+                    let mut chunks: Vec<StringBuffer> = Vec::new();
+                    let mut tree = PieceTree::new(chunks.as_mut_slice());
+                    tree.insert(0, text.as_str());
+                    tree
+                },
+                |mut tree| {
+                    tree.insert(black_box(size / 2), black_box(insert_text));
+                    black_box(tree);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
         group.bench_with_input(BenchmarkId::new("rope_end", size), size, |b, _| {
             b.iter_batched(
                 || Rope::from(text.as_str()),
@@ -136,6 +182,22 @@ fn bench_insert_operations(c: &mut Criterion) {
                 |mut string| {
                     string.push_str(black_box(insert_text));
                     black_box(string);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
+        group.bench_with_input(BenchmarkId::new("piece_tree_end", size), size, |b, _| {
+            b.iter_batched(
+                || {
+                    let mut chunks: Vec<StringBuffer> = Vec::new();
+                    let mut tree = PieceTree::new(chunks.as_mut_slice());
+                    tree.insert(0, text.as_str());
+                    tree
+                },
+                |mut tree| {
+                    tree.insert(black_box(*size), black_box(insert_text));
+                    black_box(tree);
                 },
                 criterion::BatchSize::SmallInput,
             )
@@ -186,6 +248,26 @@ fn bench_delete_operations(c: &mut Criterion) {
             )
         });
 
+        group.bench_with_input(
+            BenchmarkId::new("piece_tree_beginning", size),
+            size,
+            |b, _| {
+                b.iter_batched(
+                    || {
+                        let mut chunks: Vec<StringBuffer> = Vec::new();
+                        let mut tree = PieceTree::new(chunks.as_mut_slice());
+                        tree.insert(0, text.as_str());
+                        tree
+                    },
+                    |mut tree| {
+                        tree.delete(black_box(0usize), black_box(delete_size));
+                        black_box(tree);
+                    },
+                    criterion::BatchSize::SmallInput,
+                )
+            },
+        );
+
         let start = size / 2 - delete_size / 2;
         let end = size / 2 + delete_size / 2;
         group.bench_with_input(BenchmarkId::new("rope_middle", size), size, |b, _| {
@@ -216,6 +298,22 @@ fn bench_delete_operations(c: &mut Criterion) {
                 |mut string| {
                     string.replace_range(black_box(start..end), "");
                     black_box(string);
+                },
+                criterion::BatchSize::SmallInput,
+            )
+        });
+
+        group.bench_with_input(BenchmarkId::new("piece_tree_middle", size), size, |b, _| {
+            b.iter_batched(
+                || {
+                    let mut chunks: Vec<StringBuffer> = Vec::new();
+                    let mut tree = PieceTree::new(chunks.as_mut_slice());
+                    tree.insert(0, text.as_str());
+                    tree
+                },
+                |mut tree| {
+                    tree.delete(black_box(start), black_box(end - start));
+                    black_box(tree);
                 },
                 criterion::BatchSize::SmallInput,
             )
@@ -262,11 +360,56 @@ fn bench_slice_operations(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_serialize(c: &mut Criterion) {
+    let mut group = c.benchmark_group("serialize");
+
+    for size in [10_000, 100_000].iter() {
+        let text = "a".repeat(*size);
+        let rope = Rope::from(text.as_str());
+        let ropey = ropey::Rope::from_str(text.as_str());
+        let mut chunks: Vec<StringBuffer> = Vec::new();
+        let mut pt = PieceTree::new(chunks.as_mut_slice());
+        pt.insert(0, text.as_str());
+
+        group.throughput(Throughput::Bytes(*size as u64));
+
+        group.bench_with_input(BenchmarkId::new("rope", size), &rope, |b, rope| {
+            b.iter(|| {
+                let s = rope.collect_leaves();
+                black_box(s);
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("ropey", size), &ropey, |b, ropey| {
+            b.iter(|| {
+                let s = ropey.to_string();
+                black_box(s);
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("piece_tree", size), &pt, |b, pt| {
+            b.iter(|| {
+                let s = pt.get_text();
+                black_box(s);
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("string", size), &text, |b, text| {
+            b.iter(|| {
+                let s = text.clone();
+                black_box(s);
+            })
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_creation,
     bench_insert_operations,
     bench_delete_operations,
-    bench_slice_operations
+    bench_slice_operations,
+    bench_serialize
 );
 criterion_main!(benches);
