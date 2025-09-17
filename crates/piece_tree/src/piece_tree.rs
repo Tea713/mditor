@@ -170,6 +170,10 @@ impl PieceTree {
         self.length
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+
     pub fn line_count(&self) -> usize {
         self.line_count
     }
