@@ -1300,11 +1300,11 @@ impl PieceTree {
         let expected_line_start_index = piece.start.line + idx + 1;
         if expected_line_start_index > piece.end.line {
             // up to end of piece
-            return (line_starts[piece.end.line] + piece.end.column)
-                .saturating_sub(line_starts[piece.start.line] + piece.start.column);
+            (line_starts[piece.end.line] + piece.end.column)
+                .saturating_sub(line_starts[piece.start.line] + piece.start.column)
         } else {
-            return line_starts[expected_line_start_index]
-                .saturating_sub(line_starts[piece.start.line] + piece.start.column);
+            line_starts[expected_line_start_index]
+                .saturating_sub(line_starts[piece.start.line] + piece.start.column)
         }
     }
 
