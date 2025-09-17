@@ -1677,7 +1677,7 @@ mod tests {
     fn utf8_safe_split_and_crlf_boundary() {
         // Pattern: multi-byte chars + CRLF
         let unit = "α😀β\r\n"; // α (2 bytes), 😀 (4 bytes), β (2 bytes), \r\n (2 bytes) => 10 bytes
-        assert_eq!(unit.as_bytes().len(), 10);
+        assert_eq!(unit.len(), 10);
 
         // Pad to make the initial split index (65535) land exactly after '\r' and before '\n'
         // 65535 % 10 = 5; we want 9 => add 6 extra bytes.
@@ -1686,7 +1686,7 @@ mod tests {
         // Make the text longer than AVG_BUF (65535) so splitting occurs.
         // Use enough repeats to cross the boundary comfortably.
         let avg_buf = 65_535usize;
-        let repeats = ((avg_buf - pad.len()) / unit.as_bytes().len()) + 2;
+        let repeats = ((avg_buf - pad.len()) / unit.len()) + 2;
 
         // Build the full text: [pad][unit x repeats]
         let mut text = String::with_capacity(pad.len() + repeats * unit.len());
