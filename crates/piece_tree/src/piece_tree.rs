@@ -910,14 +910,38 @@ impl PieceTree {
         let mut pieces: Vec<Piece> = Vec::new();
 
         while !text.is_empty() {
-            let take = text.len().min(AVG_BUF);
-            // Avoid splitting right after '\r'
-            let mut split = take;
-            if split < text.len() && text.as_bytes()[split - 1] == b'\r' {
+            // Initial desired size
+            let max = text.len().min(AVG_BUF);
+
+            // Find a safe UTF-8 boundary <= max
+            let mut split = max;
+            while split > 0 && !text.is_char_boundary(split) {
                 split -= 1;
             }
+
             if split == 0 {
-                split = take; // worst case, just take
+                // max fell inside the first char; take the first char fully (or entire text if single-char)
+                split = text
+                    .char_indices()
+                    .nth(1)
+                    .map(|(i, _)| i)
+                    .unwrap_or(text.len());
+            }
+
+            // Avoid splitting a CRLF pair between chunks: if we are right after '\r' and next is '\n', include '\n'
+            if split < text.len()
+                && split > 0
+                && text.as_bytes()[split - 1] == b'\r'
+                && text.as_bytes()[split] == b'\n'
+            {
+                split += 1; // ASCII, still at UTF-8 boundary
+            } else if split < text.len() && split > 0 && text.as_bytes()[split - 1] == b'\r' {
+                // Optional: avoid ending a chunk with a dangling '\r'
+                split -= 1; // ASCII, still a safe boundary
+                // If that made split 0 and the text actually starts with CRLF, include both to keep them together
+                if split == 0 && text.len() >= 2 && &text.as_bytes()[0..2] == b"\r\n" {
+                    split = 2;
+                }
             }
 
             let chunk = &text[..split];
@@ -1054,7 +1078,6 @@ impl PieceTree {
         None
     }
 
-    // ---------- Public API: insert/delete (baseline) ----------
     // Insert `value` at document offset `offset`
     pub fn insert(&mut self, mut offset: usize, value: &str) {
         if value.is_empty() {
@@ -1644,5 +1667,66 @@ mod tests {
         assert_eq!((p.line, p.column), (3, 1));
         let p = tree.get_position_at(10);
         assert_eq!((p.line, p.column), (3, 4));
+    }
+
+    #[test]
+    fn utf8_safe_split_and_crlf_boundary() {
+        // Pattern: multi-byte chars + CRLF
+        let unit = "α😀β\r\n"; // α (2 bytes), 😀 (4 bytes), β (2 bytes), \r\n (2 bytes) => 10 bytes
+        assert_eq!(unit.as_bytes().len(), 10);
+
+        // Pad to make the initial split index (65535) land exactly after '\r' and before '\n'
+        // 65535 % 10 = 5; we want 9 => add 6 extra bytes.
+        let pad = "x".repeat(6); // ASCII, 6 bytes
+
+        // Make the text longer than AVG_BUF (65535) so splitting occurs.
+        // Use enough repeats to cross the boundary comfortably.
+        let avg_buf = 65_535usize;
+        let repeats = ((avg_buf - pad.len()) / unit.as_bytes().len()) + 2;
+
+        // Build the full text: [pad][unit x repeats]
+        let mut text = String::with_capacity(pad.len() + repeats * unit.len());
+        text.push_str(&pad);
+        for _ in 0..repeats {
+            text.push_str(unit);
+        }
+
+        // Create an empty tree and insert the large text so create_new_pieces() is exercised.
+        let mut chunks: Vec<StringBuffer> = vec![];
+        let mut tree = PieceTree::new(chunks.as_mut_slice());
+        tree.insert(0, &text);
+
+        // Round-trip: ensure exact content is preserved across piece boundaries.
+        assert_eq!(tree.get_text(), text);
+
+        // Expected lines:
+        // - First line: pad + "α😀β"
+        // - Next `repeats-1` lines: "α😀β"
+        // - Trailing empty line because the text ends with CRLF
+        let mut expected_lines: Vec<String> = Vec::with_capacity(repeats + 1);
+        expected_lines.push(format!("{}{}", pad, "α😀β"));
+        for _ in 1..repeats {
+            expected_lines.push("α😀β".to_string());
+        }
+        expected_lines.push(String::new());
+        assert_eq!(tree.get_lines_content(), expected_lines);
+
+        // Sanity checks on offsets/positions around line boundaries.
+
+        // Start of line 1.
+        assert_eq!(tree.get_offset_at(1, 1), 0);
+
+        // End of line 1 length (in bytes) equals pad.len() + "α😀β".len()
+        let line1_len = tree.get_line_length(1);
+        assert_eq!(line1_len, pad.len() + "α😀β".len());
+
+        // Start of line 2 offset should be end-of-line1 + CRLF length (2 bytes).
+        let eol_len = 2; // the source text uses CRLF
+        let offset_line2 = line1_len + eol_len;
+        assert_eq!(tree.get_offset_at(2, 1), offset_line2);
+        assert_eq!(tree.get_position_at(offset_line2).line, 2);
+
+        // Verify the last (trailing) line is empty.
+        assert_eq!(tree.get_line_length(repeats + 1), 0);
     }
 }
