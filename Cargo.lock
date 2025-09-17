@@ -443,6 +443,9 @@ dependencies = [
 [[package]]
 name = "text_buffer"
 version = "0.1.0"
+dependencies = [
+ "piece_tree",
+]
 
 [[package]]
 name = "tinytemplate"
