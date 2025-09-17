@@ -392,7 +392,7 @@ impl PieceTree {
     }
 
     fn set_parent(child: &NodeRef, parent: Option<&NodeRef>) {
-        child.borrow_mut().parent = parent.map(|p| Rc::downgrade(p));
+        child.borrow_mut().parent = parent.map(Rc::downgrade);
     }
 
     fn node_color(node: Option<&NodeRef>) -> NodeColor {
