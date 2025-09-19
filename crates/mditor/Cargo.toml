@@ -4,3 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+iced = { version = "0.13.1", features = ["advanced", "canvas", "highlighter"] }
+rfd = "0.15.4"
+text_buffer = { path = "../text_buffer" }
+piece_tree = {path = "../piece_tree"}
