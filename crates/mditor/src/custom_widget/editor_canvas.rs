@@ -74,6 +74,8 @@ impl<'a, Message> canvas::Program<Message> for EditorCanvas<'a> {
         _bounds: iced::Rectangle,
         _cursor: Cursor,
     ) -> (canvas::event::Status, Option<Message>) {
+        // TODO: implement real update thingy
+        // right now just clear the state which will simply redraw the canvas I think
         _state.cache.clear();
         (canvas::event::Status::Ignored, None)
     }
