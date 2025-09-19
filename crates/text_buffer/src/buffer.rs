@@ -1,6 +1,5 @@
-use std::str::FromStr;
-
 use piece_tree::{BufferCursor, PieceTree, StringBuffer};
+use std::str::FromStr;
 
 /// Public alias for positions (1-based line/column), forwarded from piece_tree.
 pub type Position = BufferCursor;
