@@ -3,13 +3,19 @@ mod helper;
 mod model;
 
 use custom_widget::editor_canvas::EditorCanvas;
-use helper::icon::{new_icon, open_icon, save_icon};
-use iced::highlighter;
-use iced::widget::{self, button, canvas, column, container, horizontal_space, row, text, tooltip};
-use iced::{Center, Element, Font, Task, Theme};
+use iced::widget::{
+    self, button, canvas, column, container, horizontal_rule, horizontal_space, row, rule,
+    scrollable, text,
+};
+use iced::{Center, Element, Font, Shadow, Task, Theme};
+use iced::{Length, highlighter};
 use model::{editor_message::EditorMessage, error::Error};
 use std::path::PathBuf;
 use text_buffer::{TextBuffer, TextBufferBuilder};
+
+// TODO: implement size and spacing settings
+const FONT_SIZE: f32 = 14.0;
+const LINE_SPACING: f32 = 1.4;
 
 pub fn main() -> iced::Result {
     iced::application("Mditor", Editor::update, Editor::view)
@@ -83,26 +89,23 @@ impl Editor {
     }
 
     pub fn view(&self) -> Element<'_, EditorMessage> {
-        let controls = row![
-            action(new_icon(), "New file", Some(EditorMessage::NewFile)),
-            action(
-                open_icon(),
-                "Open file",
-                (!self.is_loading).then_some(EditorMessage::OpenFile)
-            ),
-            action(
-                save_icon(),
-                "Save file",
-                self.is_dirty.then_some(EditorMessage::SaveFile)
-            ),
-        ]
-        .align_y(Center)
-        .height(iced::Length::Fixed(32.0));
+        let controls = container(
+            row![
+                action(text("New").size(12), Some(EditorMessage::NewFile)),
+                action(text("Open File...").size(12), Some(EditorMessage::OpenFile)),
+                action(text("Save File").size(12), Some(EditorMessage::SaveFile)),
+            ]
+            .align_y(Center)
+            .height(Length::Fixed(20.0))
+            .spacing(8),
+        )
+        .width(Length::Fill)
+        .padding([2, 8])
+        .style(top_bar_bg);
 
-        let status = row![
+        let status = container(row![
             text(if let Some(path) = &self.file {
                 let path = path.display().to_string();
-
                 if path.len() > 60 {
                     format!("...{}", &path[path.len() - 40..])
                 } else {
@@ -113,21 +116,41 @@ impl Editor {
             }),
             horizontal_space(),
             text({
-                // TODO: Implement actual coordinate tracking
                 let (line, column) = (0, 0);
                 format!("{}:{}", line + 1, column + 1)
             })
+        ])
+        .padding([2, 8])
+        .width(Length::Fill)
+        .style(bottom_bar_bg);
+
+        let content_height = self.buffer.get_line_count() as f32 * FONT_SIZE * LINE_SPACING;
+
+        let canvas = container(
+            row![scrollable(
+                canvas::Canvas::new(EditorCanvas::new(
+                    &self.buffer,
+                    Font::MONOSPACE,
+                    FONT_SIZE,
+                    LINE_SPACING
+                ))
+                .width(iced::Fill)
+                .height(Length::Fixed(content_height)),
+            )]
+            .height(iced::Fill),
+        )
+        .style(editor_bg)
+        .padding([0, 4])
+        .height(iced::Fill);
+
+        column![
+            controls,
+            horizontal_rule(1).style(black_rule),
+            canvas,
+            horizontal_rule(1).style(black_rule),
+            status,
         ]
-        .spacing(10);
-
-        let canvas = canvas::Canvas::new(EditorCanvas::new(&self.buffer, Font::MONOSPACE, 14.0))
-            .width(iced::Fill)
-            .height(iced::Fill);
-
-        column![controls, canvas, status,]
-            .spacing(10)
-            .padding(10)
-            .into()
+        .into()
     }
 
     pub fn theme(&self) -> Theme {
@@ -156,20 +179,107 @@ async fn open() -> Result<(PathBuf, Vec<String>), Error> {
 
 fn action<'a, EditorMessage: Clone + 'a>(
     content: impl Into<Element<'a, EditorMessage>>,
-    label: &'a str,
     on_press: Option<EditorMessage>,
 ) -> Element<'a, EditorMessage> {
-    let action = button(iced::widget::center(content).width(30));
+    let action = button(iced::widget::center(content).width(iced::Shrink))
+        .padding([2, 2])
+        .style(transparent_button);
 
     if let Some(on_press) = on_press {
-        tooltip(
-            action.on_press(on_press),
-            label,
-            tooltip::Position::FollowCursor,
-        )
-        .style(container::rounded_box)
-        .into()
+        action.on_press(on_press).into()
     } else {
-        action.style(button::secondary).into()
+        action.into()
+    }
+}
+
+fn transparent_button(theme: &Theme, status: button::Status) -> button::Style {
+    let palette = theme.palette();
+    let base_text = palette.text;
+    let accent = palette.primary;
+
+    let mut style = button::Style {
+        background: None,
+        text_color: base_text,
+        ..button::Style::default()
+    };
+
+    match status {
+        button::Status::Hovered => {
+            style.background = Some(iced::Background::Color(iced::Color { a: 0.12, ..accent }));
+            style.text_color = accent;
+        }
+        button::Status::Pressed => {
+            style.background = Some(iced::Background::Color(iced::Color { a: 0.18, ..accent }));
+            style.text_color = accent;
+        }
+        button::Status::Disabled => {
+            style.text_color = iced::Color {
+                a: 0.4,
+                ..base_text
+            };
+        }
+        _ => {}
+    }
+
+    style
+}
+
+fn black_rule(_: &iced::Theme) -> rule::Style {
+    rule::Style {
+        color: iced::Color::BLACK,
+        width: 1,
+        radius: 0.0.into(),
+        fill_mode: rule::FillMode::Full,
+    }
+}
+
+fn top_bar_bg(_: &iced::Theme) -> iced::widget::container::Style {
+    iced::widget::container::Style {
+        text_color: None,
+        background: Some(iced::Background::Color(iced::Color::from_rgba8(
+            22, 23, 19, 1.0,
+        ))),
+        border: iced::Border {
+            color: iced::Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
+        },
+        shadow: iced::Shadow {
+            ..Default::default()
+        },
+    }
+}
+
+fn editor_bg(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(iced::Background::Color(iced::Color::from_rgba8(
+            39, 40, 34, 1.0,
+        ))),
+        border: iced::Border {
+            color: iced::Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
+        },
+        shadow: Shadow {
+            ..Default::default()
+        },
+    }
+}
+
+fn bottom_bar_bg(_: &Theme) -> container::Style {
+    container::Style {
+        text_color: None,
+        background: Some(iced::Background::Color(iced::Color::from_rgba8(
+            32, 33, 28, 1.0,
+        ))),
+        border: iced::Border {
+            color: iced::Color::TRANSPARENT,
+            width: 0.0,
+            radius: 0.0.into(),
+        },
+        shadow: Shadow {
+            ..Default::default()
+        },
     }
 }

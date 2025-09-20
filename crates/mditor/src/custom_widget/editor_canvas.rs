@@ -14,14 +14,16 @@ pub struct EditorCanvas<'a> {
     buffer: &'a TextBuffer,
     font: Font,
     font_size: f32,
+    spacing: f32,
 }
 
 impl<'a> EditorCanvas<'a> {
-    pub fn new(buffer: &'a TextBuffer, font: Font, font_size: f32) -> Self {
+    pub fn new(buffer: &'a TextBuffer, font: Font, font_size: f32, spacing: f32) -> Self {
         EditorCanvas {
             buffer,
             font,
             font_size,
+            spacing,
         }
     }
 }
@@ -39,7 +41,7 @@ impl<'a, Message> canvas::Program<Message> for EditorCanvas<'a> {
     ) -> Vec<canvas::Geometry<Renderer>> {
         let geometry = state.cache.draw(renderer, bounds.size(), |frame| {
             let lines = self.buffer.get_lines_content();
-            let line_height = self.font_size * 1.4;
+            let line_height = self.font_size * self.spacing;
             let x = 0.0;
             let mut y = self.font_size;
 
