@@ -1,5 +1,5 @@
 use iced::{
-    Font, Point, Renderer, Theme,
+    Font, Point, Renderer, Size, Theme,
     mouse::Cursor,
     widget::canvas::{self, Cache},
 };
@@ -34,36 +34,70 @@ impl<'a, Message> canvas::Program<Message> for EditorCanvas<'a> {
     fn draw(
         &self,
         state: &Self::State,
-        renderer: &Renderer,
-        theme: &Theme,
+        _renderer: &Renderer,
+        _theme: &Theme,
         bounds: iced::Rectangle,
-        cursor: Cursor,
+        _cursor: Cursor,
     ) -> Vec<canvas::Geometry<Renderer>> {
-        let geometry = state.cache.draw(renderer, bounds.size(), |frame| {
+        let geometry = state.cache.draw(_renderer, bounds.size(), |frame| {
             let lines = self.buffer.get_lines_content();
+            let line_count = self.buffer.get_line_count();
+
             let line_height = self.font_size * self.spacing;
-            let x = 0.0;
+
+            let gutter_pad_left = 24.0;
+            let gutter_pad_right = 36.0;
+
+            let mono_char_factor = 0.62_f32;
+            let char_width = self.font_size * mono_char_factor;
+
+            let mut n = line_count.max(1);
+            let mut digit_count = 0usize;
+            while n > 0 {
+                digit_count += 1;
+                n /= 10;
+            }
+
+            let gutter_width =
+                gutter_pad_left + (digit_count as f32) * char_width + gutter_pad_right;
+            let number_color = iced::Color::from_rgba8(180, 180, 180, 1.0);
+            let text_color = iced::Color::from_rgba8(255, 255, 255, 1.0);
+
             let mut y = self.font_size;
 
-            for line in lines {
+            for (i, line) in lines.iter().enumerate() {
+                if y > bounds.height + line_height {
+                    break;
+                }
+
+                // Right-align the number using the monospace width approximation
+                let number_str = (i + 1).to_string();
+                let number_len = number_str.len() as f32;
+                let number_width = number_len * char_width;
+                let number_x = gutter_width - gutter_pad_right - number_width;
+
                 frame.fill_text(canvas::Text {
-                    color: iced::Color {
-                        r: 255.0,
-                        g: 255.0,
-                        b: 255.0,
-                        a: 1.0,
-                    },
-                    content: line,
+                    content: number_str,
                     font: self.font,
                     size: self.font_size.into(),
-                    position: Point::new(x, y),
+                    color: number_color,
+                    position: Point::new(number_x, y),
+                    ..Default::default()
+                });
+
+                // Draw line content shifted by gutter width
+                let x_text = gutter_width;
+
+                frame.fill_text(canvas::Text {
+                    color: text_color,
+                    content: line.clone(),
+                    font: self.font,
+                    size: self.font_size.into(),
+                    position: Point::new(x_text, y),
                     ..Default::default()
                 });
 
                 y += line_height;
-                if y > bounds.height + line_height {
-                    break;
-                }
             }
         });
         vec![geometry]
@@ -76,8 +110,6 @@ impl<'a, Message> canvas::Program<Message> for EditorCanvas<'a> {
         _bounds: iced::Rectangle,
         _cursor: Cursor,
     ) -> (canvas::event::Status, Option<Message>) {
-        // TODO: implement real update thingy
-        // right now just clear the state which will simply redraw the canvas I think
         _state.cache.clear();
         (canvas::event::Status::Ignored, None)
     }

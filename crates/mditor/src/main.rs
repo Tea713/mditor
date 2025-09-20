@@ -3,11 +3,12 @@ mod helper;
 mod model;
 
 use custom_widget::editor_canvas::EditorCanvas;
+use iced::border::Radius;
 use iced::widget::{
     self, button, canvas, column, container, horizontal_rule, horizontal_space, row, rule,
     scrollable, text,
 };
-use iced::{Center, Element, Font, Shadow, Task, Theme};
+use iced::{Border, Center, Element, Font, Shadow, Task, Theme};
 use iced::{Length, highlighter};
 use model::{editor_message::EditorMessage, error::Error};
 use std::path::PathBuf;
@@ -135,12 +136,11 @@ impl Editor {
                     LINE_SPACING
                 ))
                 .width(iced::Fill)
-                .height(Length::Fixed(content_height)),
+                .height(Length::Fixed(content_height + 850.0)),
             )]
             .height(iced::Fill),
         )
         .style(editor_bg)
-        .padding([0, 4])
         .height(iced::Fill);
 
         column![
@@ -195,22 +195,24 @@ fn action<'a, EditorMessage: Clone + 'a>(
 fn transparent_button(theme: &Theme, status: button::Status) -> button::Style {
     let palette = theme.palette();
     let base_text = palette.text;
-    let accent = palette.primary;
+    let accent = iced::Color::from_rgb8(128, 128, 128);
 
     let mut style = button::Style {
         background: None,
         text_color: base_text,
-        ..button::Style::default()
+        border: Border {
+            radius: Radius::from(4),
+            ..Default::default()
+        },
+        ..Default::default()
     };
 
     match status {
         button::Status::Hovered => {
-            style.background = Some(iced::Background::Color(iced::Color { a: 0.12, ..accent }));
-            style.text_color = accent;
+            style.background = Some(iced::Background::Color(iced::Color { a: 0.05, ..accent }));
         }
         button::Status::Pressed => {
-            style.background = Some(iced::Background::Color(iced::Color { a: 0.18, ..accent }));
-            style.text_color = accent;
+            style.background = Some(iced::Background::Color(iced::Color { a: 0.1, ..accent }));
         }
         button::Status::Disabled => {
             style.text_color = iced::Color {
