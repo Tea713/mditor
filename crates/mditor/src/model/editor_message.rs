@@ -3,11 +3,19 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub enum EditorMessage {
-    // TODO: define actions of the editor
-    ActionPerformed,
     NewFile,
     OpenFile,
-    FileOpened(Result<(PathBuf, Vec<String>), Error>),
+    FileOpened(Result<(std::path::PathBuf, Vec<String>), crate::model::error::Error>),
     SaveFile,
-    FileSaved(Result<PathBuf, Error>),
+    FileSaved(Result<(), crate::model::error::Error>),
+    ActivateEditor,
+    DeactivateEditor,
+    SetCursor { line: usize, column: usize },
+    Insert(char),
+    Backspace,
+    Enter,
+    MoveLeft,
+    MoveRight,
+    MoveUp,
+    MoveDown,
 }
