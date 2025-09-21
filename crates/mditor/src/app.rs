@@ -78,10 +78,30 @@ impl App {
             }
             EditorMessage::SaveFile => Task::none(),
             EditorMessage::FileSaved(_result) => Task::none(),
-            EditorMessage::ActivateEditor => Task::none(),
-            EditorMessage::DeactivateEditor => Task::none(),
-            EditorMessage::SetCursor { line, column } => Task::none(),
-            EditorMessage::Insert(char) => Task::none(),
+            EditorMessage::ActivateEditor => {
+                self.active = true;
+                Task::none()
+            }
+            EditorMessage::DeactivateEditor => {
+                self.active = false;
+                Task::none()
+            }
+            EditorMessage::SetCursor { line, column } => {
+                // State is 0-based; buffer API is 1-based. Clamp accordingly.
+                let last_line0 = self.buffer.get_line_count().saturating_sub(1);
+                self.line = line.min(last_line0);
+
+                let max_col1 = self.buffer.get_line_max_column(self.line + 1);
+                let max_col0 = max_col1.saturating_sub(1);
+                self.col = column.min(max_col0);
+
+                self.active = true;
+                Task::none()
+            }
+            EditorMessage::Insert(to_insert) => {
+                self.buffer.insert_at(self.line, self.col, &to_insert);
+                Task::none()
+            }
             EditorMessage::Backspace => Task::none(),
             EditorMessage::Enter => Task::none(),
             EditorMessage::MoveLeft => Task::none(),
@@ -132,7 +152,9 @@ impl App {
                     &self.buffer,
                     Font::MONOSPACE,
                     FONT_SIZE,
-                    LINE_SPACING
+                    LINE_SPACING,
+                    self.line,
+                    self.col
                 ))
                 .width(iced::Fill)
                 .height(Length::Fixed(content_height + 850.0)),
