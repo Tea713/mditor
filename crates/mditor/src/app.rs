@@ -28,8 +28,7 @@ pub struct App {
     active: bool,
     line: usize,
     col: usize,
-    // Used to preserve horizontal position when moving up/down
-    preferred_col: Option<usize>,
+    preferred_col: Option<usize>, // preserve horizontal position when moving up/down
     render_version: u64,
     input_value: String,
     input_id: text_input::Id,
@@ -113,7 +112,7 @@ impl App {
                 text_input::focus(self.input_id.clone())
             }
             EditorMessage::Backspace => {
-                // Optional: implement later
+                self.backspace();
                 text_input::focus(self.input_id.clone())
             }
             EditorMessage::Enter => {
@@ -226,8 +225,7 @@ impl App {
 
     pub fn subscription(&self) -> Subscription<EditorMessage> {
         if self.active {
-            // Listen to all runtime events. We ignore Status on purpose so we still
-            // receive arrow/backspace even when the hidden text_input is focused.
+            // Listen to all runtime events
             event::listen_with(map_runtime_event)
         } else {
             Subscription::none()
@@ -278,6 +276,20 @@ impl App {
         self.col = 0;
         self.preferred_col = Some(self.col);
         self.is_dirty = true;
+        self.render_version = self.render_version.wrapping_add(1);
+        self.input_value.clear();
+    }
+
+    fn backspace(&mut self) {
+        if self.col > 0 {
+            self.buffer.delete_at(self.line + 1, self.col, 1);
+            self.col -= 1;
+        } else if self.line > 0 {
+            self.buffer
+                .delete_at(self.line, self.buffer.get_line_length(self.line) + 1, 1);
+            self.col = self.buffer.get_line_max_column(self.line) - 1;
+            self.line -= 1;
+        }
         self.render_version = self.render_version.wrapping_add(1);
         self.input_value.clear();
     }
