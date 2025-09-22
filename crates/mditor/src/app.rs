@@ -103,41 +103,12 @@ impl App {
                 text_input::focus(self.input_id.clone())
             }
             EditorMessage::Insert(to_insert) => {
-                self.input_value = to_insert.clone();
-
-                self.buffer
-                    .insert_at(self.line + 1, self.col + 1, &to_insert);
-
-                if to_insert.contains('\n') {
-                    let parts: Vec<&str> = to_insert.split('\n').collect();
-                    self.line += parts.len() - 1;
-                    self.col = parts
-                        .last()
-                        .map(|s| UnicodeSegmentation::graphemes(*s, true).count())
-                        .unwrap_or(0);
-                } else {
-                    self.col += UnicodeSegmentation::graphemes(to_insert.as_str(), true).count();
-                }
-
-                let max_col1 = self.buffer.get_line_max_column(self.line + 1);
-                let max_col0 = max_col1.saturating_sub(1);
-                if self.col > max_col0 {
-                    self.col = max_col0;
-                }
-                self.input_value.clear();
-                self.is_dirty = true;
-                self.render_version += 1;
+                self.insert(to_insert.as_str());
                 text_input::focus(self.input_id.clone())
             }
             EditorMessage::Backspace => Task::none(),
             EditorMessage::Enter => {
-                let nl = "\n";
-                self.buffer.insert_at(self.line + 1, self.col + 1, nl);
-                self.line += 1;
-                self.col = 0;
-                self.is_dirty = true;
-                self.render_version += 1;
-                self.input_value.clear();
+                self.enter();
                 text_input::focus(self.input_id.clone())
             }
             EditorMessage::MoveLeft => Task::none(),
@@ -241,6 +212,40 @@ impl App {
 
         self.active = true;
         self.render_version += 1;
+    }
+
+    fn insert(&mut self, to_insert: &str) {
+        self.input_value = to_insert.to_string();
+
+        self.buffer
+            .insert_at(self.line + 1, self.col + 1, to_insert);
+
+        if to_insert.contains('\n') {
+            let parts: Vec<&str> = to_insert.split('\n').collect();
+            self.line += parts.len() - 1;
+            self.col = parts.last().map(|s| grapheme_count(s)).unwrap_or(0);
+        } else {
+            self.col += grapheme_count(to_insert);
+        }
+
+        let max_col1 = self.buffer.get_line_max_column(self.line + 1);
+        let max_col0 = max_col1.saturating_sub(1);
+        if self.col > max_col0 {
+            self.col = max_col0;
+        }
+        self.input_value.clear();
+        self.is_dirty = true;
+        self.render_version += 1;
+    }
+
+    fn enter(&mut self) {
+        let nl = "\n";
+        self.buffer.insert_at(self.line + 1, self.col + 1, nl);
+        self.line += 1;
+        self.col = 0;
+        self.is_dirty = true;
+        self.render_version += 1;
+        self.input_value.clear();
     }
 }
 
@@ -366,4 +371,8 @@ fn bottom_bar_bg(_: &Theme) -> container::Style {
             ..Default::default()
         },
     }
+}
+
+fn grapheme_count(s: &str) -> usize {
+    s.graphemes(true).count()
 }
