@@ -1,13 +1,15 @@
 use crate::custom_widget::editor_canvas::EditorCanvas;
 use crate::model::{editor_message::EditorMessage, error::Error};
 use iced::border::Radius;
+use iced::keyboard::Key;
 use iced::keyboard::key::Named;
-use iced::keyboard::{Key, Modifiers};
 use iced::widget::{
     button, canvas, column, container, horizontal_rule, horizontal_space, row, rule, scrollable,
     text, text_input,
 };
-use iced::{Border, Center, Element, Font, Shadow, Subscription, Task, Theme, keyboard};
+use iced::{
+    Border, Center, Element, Event, Font, Shadow, Subscription, Task, Theme, event, window,
+};
 use iced::{Length, highlighter};
 use std::path::PathBuf;
 use text_buffer::{TextBuffer, TextBufferBuilder};
@@ -26,7 +28,8 @@ pub struct App {
     active: bool,
     line: usize,
     col: usize,
-    prefered_col: Option<usize>, // for when going up and down in the editor
+    // Used to preserve horizontal position when moving up/down
+    preferred_col: Option<usize>,
     render_version: u64,
     input_value: String,
     input_id: text_input::Id,
@@ -43,7 +46,7 @@ impl App {
             active: false,
             line: 0,
             col: 0,
-            prefered_col: None,
+            preferred_col: None,
             render_version: 0,
             input_value: String::new(),
             input_id: text_input::Id::unique(),
@@ -59,7 +62,7 @@ impl App {
                     self.file = None;
                     self.buffer = TextBufferBuilder::new().finish();
                     self.is_dirty = false;
-                    self.render_version += 1;
+                    self.render_version = self.render_version.wrapping_add(1);
                 }
                 Task::none()
             }
@@ -86,7 +89,7 @@ impl App {
                     self.input_value.clear();
                     self.set_cursor(0, 0);
                     self.is_dirty = false;
-                    self.render_version += 1;
+                    self.render_version = self.render_version.wrapping_add(1);
                 }
                 Task::none()
             }
@@ -102,20 +105,29 @@ impl App {
             }
             EditorMessage::SetCursor { line, column } => {
                 self.set_cursor(line, column);
-                self.prefered_col = Some(self.col);
+                self.preferred_col = Some(self.col);
                 text_input::focus(self.input_id.clone())
             }
             EditorMessage::Insert(to_insert) => {
                 self.insert(to_insert.as_str());
                 text_input::focus(self.input_id.clone())
             }
-            EditorMessage::Backspace => Task::none(),
+            EditorMessage::Backspace => {
+                // Optional: implement later
+                text_input::focus(self.input_id.clone())
+            }
             EditorMessage::Enter => {
                 self.enter();
                 text_input::focus(self.input_id.clone())
             }
-            EditorMessage::MoveLeft => Task::none(),
-            EditorMessage::MoveRight => Task::none(),
+            EditorMessage::MoveLeft => {
+                self.cursor_left();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::MoveRight => {
+                self.cursor_right();
+                text_input::focus(self.input_id.clone())
+            }
             EditorMessage::MoveUp => {
                 self.cursor_up();
                 text_input::focus(self.input_id.clone())
@@ -177,6 +189,7 @@ impl App {
                     .width(iced::Fill)
                     .height(Length::Fixed(content_height + 850.0)),
                 ),
+                // Hidden text_input to receive text runs & IME
                 container(
                     text_input("", &self.input_value)
                         .on_input(EditorMessage::Insert)
@@ -213,7 +226,9 @@ impl App {
 
     pub fn subscription(&self) -> Subscription<EditorMessage> {
         if self.active {
-            keyboard::on_key_press(map_key_press)
+            // Listen to all runtime events. We ignore Status on purpose so we still
+            // receive arrow/backspace even when the hidden text_input is focused.
+            event::listen_with(map_runtime_event)
         } else {
             Subscription::none()
         }
@@ -228,12 +243,13 @@ impl App {
         self.col = column.min(max_col0);
 
         self.active = true;
-        self.render_version += 1;
+        self.render_version = self.render_version.wrapping_add(1);
     }
 
     fn insert(&mut self, to_insert: &str) {
         self.input_value = to_insert.to_string();
 
+        // Buffer API is 1-based
         self.buffer
             .insert_at(self.line + 1, self.col + 1, to_insert);
 
@@ -250,37 +266,63 @@ impl App {
         if self.col > max_col0 {
             self.col = max_col0;
         }
-        self.prefered_col = Some(self.col);
+        self.preferred_col = Some(self.col);
         self.input_value.clear();
         self.is_dirty = true;
-        self.render_version += 1;
+        self.render_version = self.render_version.wrapping_add(1);
     }
 
     fn enter(&mut self) {
-        let nl = "\n";
-        self.buffer.insert_at(self.line + 1, self.col + 1, nl);
+        self.buffer.insert_at(self.line + 1, self.col + 1, "\n");
         self.line += 1;
         self.col = 0;
-        self.prefered_col = Some(self.col);
+        self.preferred_col = Some(self.col);
         self.is_dirty = true;
-        self.render_version += 1;
+        self.render_version = self.render_version.wrapping_add(1);
         self.input_value.clear();
+    }
+
+    fn cursor_left(&mut self) {
+        if self.col > 0 {
+            self.set_cursor(self.line, self.col.saturating_sub(1));
+        } else if self.line > 0 {
+            let prev_line = self.line - 1;
+            let end_prev = self
+                .buffer
+                .get_line_max_column(prev_line + 1)
+                .saturating_sub(1);
+            self.set_cursor(prev_line, end_prev);
+        }
+        self.preferred_col = Some(self.col);
+    }
+
+    fn cursor_right(&mut self) {
+        let max_col0 = self
+            .buffer
+            .get_line_max_column(self.line + 1)
+            .saturating_sub(1);
+        if self.col < max_col0 {
+            self.set_cursor(self.line, self.col + 1);
+        } else if self.line + 1 < self.buffer.get_line_count() {
+            self.set_cursor(self.line + 1, 0);
+        }
+        self.preferred_col = Some(self.col);
     }
 
     fn cursor_up(&mut self) {
         if self.line == 0 {
             return;
         }
-        let prefered = self.prefered_col.unwrap_or(self.col);
-        self.set_cursor(self.line - 1, prefered);
+        let desired = self.preferred_col.unwrap_or(self.col);
+        self.set_cursor(self.line.saturating_sub(1), desired);
     }
 
     fn cursor_down(&mut self) {
-        if self.line + 1 == self.buffer.get_line_count() {
+        if self.line + 1 >= self.buffer.get_line_count() {
             return;
         }
-        let prefered = self.prefered_col.unwrap_or(self.col);
-        self.set_cursor(self.line + 1, prefered);
+        let desired = self.preferred_col.unwrap_or(self.col);
+        self.set_cursor(self.line + 1, desired);
     }
 }
 
@@ -412,13 +454,17 @@ fn grapheme_count(s: &str) -> usize {
     s.graphemes(true).count()
 }
 
-fn map_key_press(key: Key, _mod: Modifiers) -> Option<EditorMessage> {
-    match key {
-        Key::Named(Named::Backspace) => Some(EditorMessage::Backspace),
-        Key::Named(Named::ArrowLeft) => Some(EditorMessage::MoveLeft),
-        Key::Named(Named::ArrowRight) => Some(EditorMessage::MoveRight),
-        Key::Named(Named::ArrowUp) => Some(EditorMessage::MoveUp),
-        Key::Named(Named::ArrowDown) => Some(EditorMessage::MoveDown),
-        _ => None,
+fn map_runtime_event(ev: Event, _status: event::Status, _id: window::Id) -> Option<EditorMessage> {
+    if let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }) = ev {
+        match key {
+            Key::Named(Named::Backspace) => Some(EditorMessage::Backspace),
+            Key::Named(Named::ArrowLeft) => Some(EditorMessage::MoveLeft),
+            Key::Named(Named::ArrowRight) => Some(EditorMessage::MoveRight),
+            Key::Named(Named::ArrowUp) => Some(EditorMessage::MoveUp),
+            Key::Named(Named::ArrowDown) => Some(EditorMessage::MoveDown),
+            _ => None,
+        }
+    } else {
+        None
     }
 }
