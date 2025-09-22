@@ -2,13 +2,14 @@ use crate::custom_widget::editor_canvas::EditorCanvas;
 use crate::model::{editor_message::EditorMessage, error::Error};
 use iced::border::Radius;
 use iced::widget::{
-    self, button, canvas, column, container, horizontal_rule, horizontal_space, row, rule,
-    scrollable, text,
+    button, canvas, column, container, horizontal_rule, horizontal_space, row, rule, scrollable,
+    text, text_input,
 };
 use iced::{Border, Center, Element, Font, Shadow, Task, Theme};
 use iced::{Length, highlighter};
 use std::path::PathBuf;
 use text_buffer::{TextBuffer, TextBufferBuilder};
+use unicode_segmentation::UnicodeSegmentation;
 
 // TODO: implement size and spacing settings
 const FONT_SIZE: f32 = 14.0;
@@ -23,23 +24,28 @@ pub struct App {
     active: bool,
     line: usize,
     col: usize,
+    render_version: u64,
+    input_value: String,
+    input_id: text_input::Id,
 }
 
 impl App {
     pub fn new() -> (Self, Task<EditorMessage>) {
-        (
-            Self {
-                file: None,
-                buffer: TextBufferBuilder::new().finish(),
-                theme: highlighter::Theme::SolarizedDark,
-                is_loading: false,
-                is_dirty: false,
-                active: false,
-                line: 0,
-                col: 0,
-            },
-            Task::batch([widget::focus_next()]),
-        )
+        let app = Self {
+            file: None,
+            buffer: TextBufferBuilder::new().finish(),
+            theme: highlighter::Theme::SolarizedDark,
+            is_loading: false,
+            is_dirty: false,
+            active: false,
+            line: 0,
+            col: 0,
+            render_version: 0,
+            input_value: String::new(),
+            input_id: text_input::Id::unique(),
+        };
+        let task = text_input::focus(app.input_id.clone());
+        (app, task)
     }
 
     pub fn update(&mut self, message: EditorMessage) -> Task<EditorMessage> {
@@ -49,6 +55,7 @@ impl App {
                     self.file = None;
                     self.buffer = TextBufferBuilder::new().finish();
                     self.is_dirty = false;
+                    self.render_version += 1;
                 }
                 Task::none()
             }
@@ -72,7 +79,10 @@ impl App {
                         builder.accept_chunk(&s);
                     }
                     self.buffer = builder.finish();
+                    self.input_value.clear();
+                    self.set_cursor(0, 0);
                     self.is_dirty = false;
+                    self.render_version += 1;
                 }
                 Task::none()
             }
@@ -80,30 +90,54 @@ impl App {
             EditorMessage::FileSaved(_result) => Task::none(),
             EditorMessage::ActivateEditor => {
                 self.active = true;
-                Task::none()
+                text_input::focus(self.input_id.clone())
             }
             EditorMessage::DeactivateEditor => {
                 self.active = false;
                 Task::none()
             }
             EditorMessage::SetCursor { line, column } => {
-                // State is 0-based; buffer API is 1-based. Clamp accordingly.
-                let last_line0 = self.buffer.get_line_count().saturating_sub(1);
-                self.line = line.min(last_line0);
+                self.set_cursor(line, column);
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::Insert(to_insert) => {
+                self.input_value = to_insert.clone();
+
+                self.buffer
+                    .insert_at(self.line + 1, self.col + 1, &to_insert);
+
+                if to_insert.contains('\n') {
+                    let parts: Vec<&str> = to_insert.split('\n').collect();
+                    self.line += parts.len() - 1;
+                    self.col = parts
+                        .last()
+                        .map(|s| UnicodeSegmentation::graphemes(*s, true).count())
+                        .unwrap_or(0);
+                } else {
+                    self.col += UnicodeSegmentation::graphemes(to_insert.as_str(), true).count();
+                }
 
                 let max_col1 = self.buffer.get_line_max_column(self.line + 1);
                 let max_col0 = max_col1.saturating_sub(1);
-                self.col = column.min(max_col0);
-
-                self.active = true;
-                Task::none()
-            }
-            EditorMessage::Insert(to_insert) => {
-                self.buffer.insert_at(self.line, self.col, &to_insert);
-                Task::none()
+                if self.col > max_col0 {
+                    self.col = max_col0;
+                }
+                self.input_value.clear();
+                self.is_dirty = true;
+                self.render_version += 1;
+                text_input::focus(self.input_id.clone())
             }
             EditorMessage::Backspace => Task::none(),
-            EditorMessage::Enter => Task::none(),
+            EditorMessage::Enter => {
+                let nl = "\n";
+                self.buffer.insert_at(self.line + 1, self.col + 1, nl);
+                self.line += 1;
+                self.col = 0;
+                self.is_dirty = true;
+                self.render_version += 1;
+                self.input_value.clear();
+                text_input::focus(self.input_id.clone())
+            }
             EditorMessage::MoveLeft => Task::none(),
             EditorMessage::MoveRight => Task::none(),
             EditorMessage::MoveUp => Task::none(),
@@ -147,18 +181,31 @@ impl App {
         let content_height = self.buffer.get_line_count() as f32 * FONT_SIZE * LINE_SPACING;
 
         let canvas = container(
-            row![scrollable(
-                canvas::Canvas::new(EditorCanvas::new(
-                    &self.buffer,
-                    Font::MONOSPACE,
-                    FONT_SIZE,
-                    LINE_SPACING,
-                    self.line,
-                    self.col
-                ))
-                .width(iced::Fill)
-                .height(Length::Fixed(content_height + 850.0)),
-            )]
+            row![
+                scrollable(
+                    canvas::Canvas::new(EditorCanvas::new(
+                        &self.buffer,
+                        Font::MONOSPACE,
+                        FONT_SIZE,
+                        LINE_SPACING,
+                        self.line,
+                        self.col,
+                        self.render_version,
+                    ))
+                    .width(iced::Fill)
+                    .height(Length::Fixed(content_height + 850.0)),
+                ),
+                container(
+                    text_input("", &self.input_value)
+                        .on_input(EditorMessage::Insert)
+                        .on_submit(EditorMessage::Enter)
+                        .id(self.input_id.clone())
+                        .size(1)
+                        .padding(0)
+                )
+                .width(Length::Fixed(1.0))
+                .height(Length::Fixed(1.0)),
+            ]
             .height(iced::Fill),
         )
         .style(editor_bg)
@@ -180,6 +227,18 @@ impl App {
         } else {
             Theme::Light
         }
+    }
+
+    fn set_cursor(&mut self, line: usize, column: usize) {
+        let last_line0 = self.buffer.get_line_count().saturating_sub(1);
+        self.line = line.min(last_line0);
+
+        let max_col1 = self.buffer.get_line_max_column(self.line + 1);
+        let max_col0 = max_col1.saturating_sub(1);
+        self.col = column.min(max_col0);
+
+        self.active = true;
+        self.render_version += 1;
     }
 }
 
