@@ -1,6 +1,5 @@
 mod app;
 mod custom_widget;
-mod helper;
 mod model;
 
 use app::App;
