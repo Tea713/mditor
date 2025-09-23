@@ -6,6 +6,7 @@ use iced::{
     widget::canvas::{self, Cache},
 };
 use text_buffer::TextBuffer;
+use unicode_segmentation::UnicodeSegmentation;
 // TODOS: figure out how to get factor for any font. Right now just a constant that align with iced's FONT::MONOSPACE
 const MONO_CHAR_FACTOR: f32 = 0.585;
 
@@ -173,10 +174,20 @@ impl<'a> canvas::Program<crate::model::editor_message::EditorMessage> for Editor
                     }
                     let gutter_width = 24.0 + (digit_count as f32) * char_width + 36.0;
 
-                    let line = (p.y / line_height).floor().max(0.0) as usize;
-                    let column = ((p.x - gutter_width).max(0.0) / char_width)
-                        .floor()
+                    let mut line = (p.y / line_height).floor().max(0.0) as usize;
+                    let line_count = self.buffer.get_line_count();
+                    if line_count > 0 {
+                        line = line.min(line_count.saturating_sub(1));
+                    } else {
+                        line = 0;
+                    }
+                    let approx_col = ((p.x - gutter_width).max(0.0) / char_width)
+                        .round()
                         .max(0.0) as usize;
+
+                    let line_text = self.buffer.get_line_content(line + 1);
+                    let grapheme_len = line_text.graphemes(true).count();
+                    let column = approx_col.min(grapheme_len);
 
                     state.cache.borrow_mut().clear();
                     return (

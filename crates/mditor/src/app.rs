@@ -236,8 +236,8 @@ impl App {
         let last_line0 = self.buffer.get_line_count().saturating_sub(1);
         self.line = line.min(last_line0);
 
-        let max_col1 = self.buffer.get_line_max_column(self.line + 1);
-        let max_col0 = max_col1.saturating_sub(1);
+        let line_text = self.buffer.get_line_content(self.line + 1);
+        let max_col0 = grapheme_count(&line_text);
         self.col = column.min(max_col0);
 
         self.active = true;
@@ -247,9 +247,10 @@ impl App {
     fn insert(&mut self, to_insert: &str) {
         self.input_value = to_insert.to_string();
 
-        // Buffer API is 1-based
+        let current_line = self.buffer.get_line_content(self.line + 1);
+        let byte_col0 = byte_col_for_grapheme_col(&current_line, self.col);
         self.buffer
-            .insert_at(self.line + 1, self.col + 1, to_insert);
+            .insert_at(self.line + 1, byte_col0 + 1, to_insert);
 
         if to_insert.contains('\n') {
             let parts: Vec<&str> = to_insert.split('\n').collect();
@@ -259,8 +260,8 @@ impl App {
             self.col += grapheme_count(to_insert);
         }
 
-        let max_col1 = self.buffer.get_line_max_column(self.line + 1);
-        let max_col0 = max_col1.saturating_sub(1);
+        let line_text = self.buffer.get_line_content(self.line + 1);
+        let max_col0 = grapheme_count(&line_text);
         if self.col > max_col0 {
             self.col = max_col0;
         }
@@ -271,7 +272,9 @@ impl App {
     }
 
     fn enter(&mut self) {
-        self.buffer.insert_at(self.line + 1, self.col + 1, "\n");
+        let current_line = self.buffer.get_line_content(self.line + 1);
+        let byte_col0 = byte_col_for_grapheme_col(&current_line, self.col);
+        self.buffer.insert_at(self.line + 1, byte_col0 + 1, "\n");
         self.line += 1;
         self.col = 0;
         self.preferred_col = Some(self.col);
@@ -282,13 +285,22 @@ impl App {
 
     fn backspace(&mut self) {
         if self.col > 0 {
-            self.buffer.delete_at(self.line + 1, self.col, 1);
+            let line_text = self.buffer.get_line_content(self.line + 1);
+            let caret_byte = byte_col_for_grapheme_col(&line_text, self.col);
+            let prev_start_byte = byte_col_for_grapheme_col(&line_text, self.col - 1);
+            let len_bytes = caret_byte.saturating_sub(prev_start_byte);
+            if len_bytes > 0 {
+                self.buffer
+                    .delete_at(self.line + 1, prev_start_byte + 1, len_bytes);
+            }
             self.col -= 1;
         } else if self.line > 0 {
-            self.buffer
-                .delete_at(self.line, self.buffer.get_line_length(self.line) + 1, 1);
-            self.col = self.buffer.get_line_max_column(self.line) - 1;
+            let prev_line1 = self.line;
+            let prev_text_before = self.buffer.get_line_content(prev_line1);
+            let prev_end_col1 = self.buffer.get_line_length(prev_line1) + 1;
+            self.buffer.delete_at(prev_line1, prev_end_col1, 1);
             self.line -= 1;
+            self.col = grapheme_count(&prev_text_before);
         }
         self.render_version = self.render_version.wrapping_add(1);
         self.input_value.clear();
@@ -299,20 +311,14 @@ impl App {
             self.set_cursor(self.line, self.col.saturating_sub(1));
         } else if self.line > 0 {
             let prev_line = self.line - 1;
-            let end_prev = self
-                .buffer
-                .get_line_max_column(prev_line + 1)
-                .saturating_sub(1);
+            let end_prev = grapheme_count(&self.buffer.get_line_content(prev_line + 1));
             self.set_cursor(prev_line, end_prev);
         }
         self.preferred_col = Some(self.col);
     }
 
     fn cursor_right(&mut self) {
-        let max_col0 = self
-            .buffer
-            .get_line_max_column(self.line + 1)
-            .saturating_sub(1);
+        let max_col0 = grapheme_count(&self.buffer.get_line_content(self.line + 1));
         if self.col < max_col0 {
             self.set_cursor(self.line, self.col + 1);
         } else if self.line + 1 < self.buffer.get_line_count() {
@@ -464,6 +470,21 @@ fn bottom_bar_bg(_: &Theme) -> container::Style {
 
 fn grapheme_count(s: &str) -> usize {
     s.graphemes(true).count()
+}
+
+fn byte_col_for_grapheme_col(line: &str, grapheme_col0: usize) -> usize {
+    // Return 0-based byte column corresponding to a 0-based grapheme column
+    if grapheme_col0 == 0 {
+        return 0;
+    }
+    let mut bytes = 0usize;
+    for (i, g) in line.graphemes(true).enumerate() {
+        if i >= grapheme_col0 {
+            break;
+        }
+        bytes += g.len();
+    }
+    bytes
 }
 
 fn map_runtime_event(ev: Event, _status: event::Status, _id: window::Id) -> Option<EditorMessage> {
