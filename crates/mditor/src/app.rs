@@ -92,8 +92,43 @@ impl App {
                 }
                 Task::none()
             }
-            EditorMessage::SaveFile => Task::none(),
-            EditorMessage::FileSaved(_result) => Task::none(),
+            EditorMessage::SaveFile => {
+                if self.is_loading {
+                    Task::none()
+                } else if let Some(path) = self.file.clone() {
+                    self.is_loading = true;
+                    let content = self.buffer.get_text();
+                    Task::perform(save_to_path(path, content), EditorMessage::FileSaved)
+                } else {
+                    self.is_loading = true;
+                    let content = self.buffer.get_text();
+                    Task::perform(save_as(content), EditorMessage::FileSaved)
+                }
+            }
+            EditorMessage::SaveAs => {
+                if self.is_loading {
+                    Task::none()
+                } else {
+                    self.is_loading = true;
+                    let content = self.buffer.get_text();
+                    Task::perform(save_as(content), EditorMessage::FileSaved)
+                }
+            }
+            EditorMessage::FileSaved(result) => {
+                self.is_loading = false;
+                match result {
+                    Ok(maybe_path) => {
+                        self.is_dirty = false;
+                        if let Some(path) = maybe_path {
+                            self.file = Some(path);
+                        }
+                    }
+                    Err(_) => {
+                        // TODO: Show error message in status bar
+                    }
+                }
+                Task::none()
+            }
             EditorMessage::ActivateEditor => {
                 self.active = true;
                 text_input::focus(self.input_id.clone())
@@ -144,6 +179,7 @@ impl App {
                 action(text("New").size(12), Some(EditorMessage::NewFile)),
                 action(text("Open File...").size(12), Some(EditorMessage::OpenFile)),
                 action(text("Save File").size(12), Some(EditorMessage::SaveFile)),
+                action(text("Save As...").size(12), Some(EditorMessage::SaveAs)),
             ]
             .align_y(Center)
             .height(Length::Fixed(20.0))
@@ -359,6 +395,88 @@ async fn open() -> Result<(PathBuf, Vec<String>), Error> {
     Ok((path, chunks))
 }
 
+async fn save_as(content: String) -> Result<Option<PathBuf>, Error> {
+    let file = rfd::AsyncFileDialog::new()
+        .set_title("Save file as...")
+        .set_file_name("Untitled.txt")
+        .save_file()
+        .await
+        .ok_or(Error::DialogClosed)?;
+
+    let path = file.path().to_path_buf();
+    save_atomic(&path, &content).map_err(|e| Error::IoError(e.kind()))?;
+
+    Ok(Some(path))
+}
+
+async fn save_to_path(path: PathBuf, content: String) -> Result<Option<PathBuf>, Error> {
+    save_atomic(&path, &content).map_err(|e| Error::IoError(e.kind()))?;
+    Ok(None)
+}
+
+fn save_atomic(dest: &std::path::Path, content: &str) -> std::io::Result<()> {
+    use std::ffi::OsString;
+    use std::fs::{self, OpenOptions};
+    use std::io::{BufWriter, Write};
+
+    // Create temp file path in same directory
+    let dir = dest
+        .parent()
+        .ok_or_else(|| std::io::Error::other("No parent directory"))?;
+    let file_name = dest
+        .file_name()
+        .ok_or_else(|| std::io::Error::other("No file name"))?;
+    let mut tmp_name = OsString::from(".");
+    tmp_name.push(file_name);
+    tmp_name.push(".tmp");
+    let tmp_path = dir.join(tmp_name);
+
+    // Create/truncate temp file
+    let tmp_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&tmp_path)?;
+
+    // Write content
+    let mut writer = BufWriter::new(tmp_file);
+    writer.write_all(content.as_bytes())?;
+    writer.flush()?;
+    writer.get_mut().sync_all()?;
+
+    // Copy permissions from existing file if it exists
+    if let Ok(meta) = fs::metadata(dest) {
+        let perms = meta.permissions();
+        fs::set_permissions(&tmp_path, perms)?;
+    }
+
+    // Atomically replace destination with temp
+    match fs::rename(&tmp_path, dest) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            // Fallback: remove target and retry
+            fs::remove_file(dest)?;
+            fs::rename(&tmp_path, dest)?;
+        }
+        Err(e) => return Err(e),
+    }
+
+    // Sync directory on Unix for crash consistency
+    #[cfg(target_family = "unix")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        if let Ok(dir_fd) = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY)
+            .open(dir)
+        {
+            let _ = dir_fd.sync_all();
+        }
+    }
+
+    Ok(())
+}
+
 fn action<'a, EditorMessage: Clone + 'a>(
     content: impl Into<Element<'a, EditorMessage>>,
     on_press: Option<EditorMessage>,
@@ -488,13 +606,24 @@ fn byte_col_for_grapheme_col(line: &str, grapheme_col0: usize) -> usize {
 }
 
 fn map_runtime_event(ev: Event, _status: event::Status, _id: window::Id) -> Option<EditorMessage> {
-    if let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }) = ev {
-        match key {
-            Key::Named(Named::Backspace) => Some(EditorMessage::Backspace),
-            Key::Named(Named::ArrowLeft) => Some(EditorMessage::MoveLeft),
-            Key::Named(Named::ArrowRight) => Some(EditorMessage::MoveRight),
-            Key::Named(Named::ArrowUp) => Some(EditorMessage::MoveUp),
-            Key::Named(Named::ArrowDown) => Some(EditorMessage::MoveDown),
+    if let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = ev {
+        match (key, modifiers) {
+            // Save shortcuts
+            (Key::Character(ref c), modifiers)
+                if c.as_str() == "s" && modifiers.command() && modifiers.shift() =>
+            {
+                Some(EditorMessage::SaveAs)
+            }
+            (Key::Character(ref c), modifiers) if c.as_str() == "s" && modifiers.command() => {
+                Some(EditorMessage::SaveFile)
+            }
+
+            // Nav
+            (Key::Named(Named::Backspace), _) => Some(EditorMessage::Backspace),
+            (Key::Named(Named::ArrowLeft), _) => Some(EditorMessage::MoveLeft),
+            (Key::Named(Named::ArrowRight), _) => Some(EditorMessage::MoveRight),
+            (Key::Named(Named::ArrowUp), _) => Some(EditorMessage::MoveUp),
+            (Key::Named(Named::ArrowDown), _) => Some(EditorMessage::MoveDown),
             _ => None,
         }
     } else {
