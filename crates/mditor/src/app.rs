@@ -19,6 +19,19 @@ use unicode_segmentation::UnicodeSegmentation;
 const FONT_SIZE: f32 = 14.0;
 const LINE_SPACING: f32 = 1.4;
 
+// 0-based
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Caret {
+    line: usize,
+    col: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Selection {
+    anchor: Caret,
+    head: Caret,
+}
+
 pub struct App {
     file: Option<PathBuf>,
     buffer: TextBuffer,
@@ -29,6 +42,7 @@ pub struct App {
     line: usize,
     col: usize,
     preferred_col: Option<usize>, // preserve horizontal position when moving up/down
+    selection: Option<Selection>,
     render_version: u64,
     input_value: String,
     input_id: text_input::Id,
@@ -46,6 +60,7 @@ impl App {
             line: 0,
             col: 0,
             preferred_col: None,
+            selection: None,
             render_version: 0,
             input_value: String::new(),
             input_id: text_input::Id::unique(),
@@ -139,6 +154,7 @@ impl App {
             }
             EditorMessage::SetCursor { line, column } => {
                 self.set_cursor(line, column);
+                self.selection = None;
                 self.preferred_col = Some(self.col);
                 text_input::focus(self.input_id.clone())
             }
@@ -168,6 +184,39 @@ impl App {
             }
             EditorMessage::MoveDown => {
                 self.cursor_down();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::DeleteForward => {
+                self.delete_forward();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::SelectAll => {
+                self.select_all();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::BeginSelection { line, column } => {
+                self.begin_selection(line, column);
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::ExtendSelectionTo { line, column } => {
+                self.extend_selection_to(line, column);
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::EndSelection => Task::none(),
+            EditorMessage::ExtendLeft => {
+                self.extend_left();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::ExtendRight => {
+                self.extend_right();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::ExtendUp => {
+                self.extend_up();
+                text_input::focus(self.input_id.clone())
+            }
+            EditorMessage::ExtendDown => {
+                self.extend_down();
                 text_input::focus(self.input_id.clone())
             }
         }
@@ -212,15 +261,28 @@ impl App {
         let canvas = container(
             row![
                 scrollable(
-                    canvas::Canvas::new(EditorCanvas::new(
-                        &self.buffer,
-                        Font::MONOSPACE,
-                        FONT_SIZE,
-                        LINE_SPACING,
-                        self.line,
-                        self.col,
-                        self.render_version,
-                    ))
+                    {
+                        let editor = EditorCanvas::new(
+                            &self.buffer,
+                            Font::MONOSPACE,
+                            FONT_SIZE,
+                            LINE_SPACING,
+                            self.line,
+                            self.col,
+                            self.render_version,
+                        );
+                        let editor = if let Some(sel) = self.selection {
+                            editor.with_selection(
+                                sel.anchor.line,
+                                sel.anchor.col,
+                                sel.head.line,
+                                sel.head.col,
+                            )
+                        } else {
+                            editor
+                        };
+                        canvas::Canvas::new(editor)
+                    }
                     .width(iced::Fill)
                     .height(Length::Fixed(content_height + 850.0)),
                 ),
@@ -283,6 +345,13 @@ impl App {
     fn insert(&mut self, to_insert: &str) {
         self.input_value = to_insert.to_string();
 
+        // If there is a selection, delete it first and move caret to start
+        if let Some((from, to)) = self.selection_range() {
+            self.delete_selection_range(from, to);
+            self.set_cursor(from.line, from.col);
+            self.selection = None;
+        }
+
         let current_line = self.buffer.get_line_content(self.line + 1);
         let byte_col0 = byte_col_for_grapheme_col(&current_line, self.col);
         self.buffer
@@ -304,10 +373,17 @@ impl App {
         self.preferred_col = Some(self.col);
         self.input_value.clear();
         self.is_dirty = true;
+        self.selection = None;
         self.render_version = self.render_version.wrapping_add(1);
     }
 
     fn enter(&mut self) {
+        if let Some((from, to)) = self.selection_range() {
+            self.delete_selection_range(from, to);
+            self.set_cursor(from.line, from.col);
+            self.selection = None;
+        }
+
         let current_line = self.buffer.get_line_content(self.line + 1);
         let byte_col0 = byte_col_for_grapheme_col(&current_line, self.col);
         self.buffer.insert_at(self.line + 1, byte_col0 + 1, "\n");
@@ -320,6 +396,17 @@ impl App {
     }
 
     fn backspace(&mut self) {
+        // Delete selection if any
+        if let Some((from, to)) = self.selection_range() {
+            self.delete_selection_range(from, to);
+            self.set_cursor(from.line, from.col);
+            self.selection = None;
+            self.is_dirty = true;
+            self.render_version = self.render_version.wrapping_add(1);
+            self.input_value.clear();
+            return;
+        }
+
         if self.col > 0 {
             let line_text = self.buffer.get_line_content(self.line + 1);
             let caret_byte = byte_col_for_grapheme_col(&line_text, self.col);
@@ -338,6 +425,7 @@ impl App {
             self.line -= 1;
             self.col = grapheme_count(&prev_text_before);
         }
+        self.is_dirty = true;
         self.render_version = self.render_version.wrapping_add(1);
         self.input_value.clear();
     }
@@ -377,6 +465,161 @@ impl App {
         }
         let desired = self.preferred_col.unwrap_or(self.col);
         self.set_cursor(self.line + 1, desired);
+    }
+
+    fn selection_range(&self) -> Option<(Caret, Caret)> {
+        if let Some(sel) = self.selection {
+            if sel.anchor == sel.head {
+                None
+            } else if (sel.head.line, sel.head.col) < (sel.anchor.line, sel.anchor.col) {
+                Some((sel.head, sel.anchor))
+            } else {
+                Some((sel.anchor, sel.head))
+            }
+        } else {
+            None
+        }
+    }
+
+    fn delete_selection_range(&mut self, from: Caret, to: Caret) {
+        if (from.line, from.col) == (to.line, to.col) {
+            return;
+        }
+
+        let start_line1 = from.line + 1;
+        let start_line_text = self.buffer.get_line_content(start_line1);
+        let start_b0 = byte_col_for_grapheme_col(&start_line_text, from.col);
+        let start_off = self.buffer.get_offset_at(start_line1, start_b0 + 1);
+
+        let end_line1 = to.line + 1;
+        let end_line_text = self.buffer.get_line_content(end_line1);
+        let end_b0 = byte_col_for_grapheme_col(&end_line_text, to.col);
+        let end_off = self.buffer.get_offset_at(end_line1, end_b0 + 1);
+
+        if end_off > start_off {
+            self.buffer.delete(start_off, end_off - start_off);
+        }
+
+        // Move caret to start of selection and clear selection
+        self.line = from.line;
+        self.col = from.col;
+        self.selection = None;
+        self.is_dirty = true;
+        self.preferred_col = Some(self.col);
+        self.render_version = self.render_version.wrapping_add(1);
+    }
+
+    fn begin_selection(&mut self, line: usize, column: usize) {
+        self.set_cursor(line, column);
+        let caret = Caret {
+            line: self.line,
+            col: self.col,
+        };
+        self.selection = Some(Selection {
+            anchor: caret,
+            head: caret,
+        });
+    }
+
+    fn extend_selection_to(&mut self, line: usize, column: usize) {
+        let anchor = if let Some(sel) = self.selection {
+            sel.anchor
+        } else {
+            Caret {
+                line: self.line,
+                col: self.col,
+            }
+        };
+        self.set_cursor(line, column);
+        self.selection = Some(Selection {
+            anchor,
+            head: Caret {
+                line: self.line,
+                col: self.col,
+            },
+        });
+        self.preferred_col = Some(self.col);
+    }
+
+    fn extend_left(&mut self) {
+        let (mut line, mut col) = (self.line, self.col);
+        if col > 0 {
+            col -= 1;
+        } else if line > 0 {
+            line -= 1;
+            col = grapheme_count(&self.buffer.get_line_content(line + 1));
+        }
+        self.extend_selection_to(line, col);
+    }
+
+    fn extend_right(&mut self) {
+        let max_col0 = grapheme_count(&self.buffer.get_line_content(self.line + 1));
+        let (mut line, mut col) = (self.line, self.col);
+        if col < max_col0 {
+            col += 1;
+        } else if self.line + 1 < self.buffer.get_line_count() {
+            line += 1;
+            col = 0;
+        }
+        self.extend_selection_to(line, col);
+    }
+
+    fn extend_up(&mut self) {
+        if self.line == 0 {
+            return;
+        }
+        let desired = self.preferred_col.unwrap_or(self.col);
+        let line = self.line.saturating_sub(1);
+        self.extend_selection_to(line, desired);
+    }
+
+    fn extend_down(&mut self) {
+        if self.line + 1 >= self.buffer.get_line_count() {
+            return;
+        }
+        let desired = self.preferred_col.unwrap_or(self.col);
+        let line = self.line + 1;
+        self.extend_selection_to(line, desired);
+    }
+
+    fn select_all(&mut self) {
+        let last_line = self.buffer.get_line_count().saturating_sub(1);
+        let last_col = grapheme_count(&self.buffer.get_line_content(last_line + 1));
+        self.selection = Some(Selection {
+            anchor: Caret { line: 0, col: 0 },
+            head: Caret {
+                line: last_line,
+                col: last_col,
+            },
+        });
+        self.set_cursor(last_line, last_col);
+    }
+
+    fn delete_forward(&mut self) {
+        if let Some((from, to)) = self.selection_range() {
+            self.delete_selection_range(from, to);
+            self.set_cursor(from.line, from.col);
+            self.selection = None;
+            return;
+        }
+
+        let max_col0 = grapheme_count(&self.buffer.get_line_content(self.line + 1));
+        if self.col < max_col0 {
+            let line_text = self.buffer.get_line_content(self.line + 1);
+            let start_b0 = byte_col_for_grapheme_col(&line_text, self.col);
+            let end_b0 = byte_col_for_grapheme_col(&line_text, self.col + 1);
+            let len = end_b0.saturating_sub(start_b0);
+            if len > 0 {
+                self.buffer.delete_at(self.line + 1, start_b0 + 1, len);
+                self.is_dirty = true;
+            }
+        } else if self.line + 1 < self.buffer.get_line_count() {
+            let end_col1 = self.buffer.get_line_length(self.line + 1) + 1;
+            self.buffer.delete_at(self.line + 1, end_col1, 1);
+            self.is_dirty = true;
+        }
+        self.render_version = self.render_version.wrapping_add(1);
+        self.input_value.clear();
     }
 }
 
@@ -609,21 +852,34 @@ fn map_runtime_event(ev: Event, _status: event::Status, _id: window::Id) -> Opti
     if let Event::Keyboard(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) = ev {
         match (key, modifiers) {
             // Save shortcuts
-            (Key::Character(ref c), modifiers)
-                if c.as_str() == "s" && modifiers.command() && modifiers.shift() =>
-            {
+            (Key::Character(ref c), m) if c.as_str() == "s" && m.command() && m.shift() => {
                 Some(EditorMessage::SaveAs)
             }
-            (Key::Character(ref c), modifiers) if c.as_str() == "s" && modifiers.command() => {
+            (Key::Character(ref c), m) if c.as_str() == "s" && m.command() => {
                 Some(EditorMessage::SaveFile)
             }
 
-            // Nav
+            // Select All
+            (Key::Character(ref c), m) if c.as_str() == "a" && m.command() => {
+                Some(EditorMessage::SelectAll)
+            }
+
+            // Delete / Backspace
+            (Key::Named(Named::Delete), _) => Some(EditorMessage::DeleteForward),
             (Key::Named(Named::Backspace), _) => Some(EditorMessage::Backspace),
+
+            // Shift+Arrows extend selection
+            (Key::Named(Named::ArrowLeft), m) if m.shift() => Some(EditorMessage::ExtendLeft),
+            (Key::Named(Named::ArrowRight), m) if m.shift() => Some(EditorMessage::ExtendRight),
+            (Key::Named(Named::ArrowUp), m) if m.shift() => Some(EditorMessage::ExtendUp),
+            (Key::Named(Named::ArrowDown), m) if m.shift() => Some(EditorMessage::ExtendDown),
+
+            // Plain arrows move caret (collapse selection)
             (Key::Named(Named::ArrowLeft), _) => Some(EditorMessage::MoveLeft),
             (Key::Named(Named::ArrowRight), _) => Some(EditorMessage::MoveRight),
             (Key::Named(Named::ArrowUp), _) => Some(EditorMessage::MoveUp),
             (Key::Named(Named::ArrowDown), _) => Some(EditorMessage::MoveDown),
+
             _ => None,
         }
     } else {

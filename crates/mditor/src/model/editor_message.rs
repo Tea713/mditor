@@ -19,4 +19,13 @@ pub enum EditorMessage {
     MoveRight,
     MoveUp,
     MoveDown,
+    BeginSelection { line: usize, column: usize },
+    ExtendSelectionTo { line: usize, column: usize },
+    EndSelection,
+    SelectAll,
+    DeleteForward,
+    ExtendLeft,
+    ExtendRight,
+    ExtendUp,
+    ExtendDown,
 }

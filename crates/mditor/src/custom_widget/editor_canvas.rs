@@ -10,10 +10,11 @@ use unicode_segmentation::UnicodeSegmentation;
 // TODOS: figure out how to get factor for any font. Right now just a constant that align with iced's FONT::MONOSPACE
 const MONO_CHAR_FACTOR: f32 = 0.585;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default)] 
 pub struct EditorCanvasCache {
     cache: std::cell::RefCell<Cache>,
     seen_version: std::cell::Cell<u64>,
+    dragging: std::cell::Cell<bool>,
 }
 
 pub struct EditorCanvas<'a> {
@@ -24,6 +25,7 @@ pub struct EditorCanvas<'a> {
     cursor_line: usize,
     cursor_col: usize,
     render_version: u64,
+    selection: Option<((usize, usize), (usize, usize))>,
 }
 
 impl<'a> EditorCanvas<'a> {
@@ -44,7 +46,19 @@ impl<'a> EditorCanvas<'a> {
             cursor_line,
             cursor_col,
             render_version,
+            selection: None,
         }
+    }
+
+    pub fn with_selection(
+        mut self,
+        anchor_line: usize,
+        anchor_col: usize,
+        head_line: usize,
+        head_col: usize,
+    ) -> Self {
+        self.selection = Some(((anchor_line, anchor_col), (head_line, head_col)));
+        self
     }
 }
 
@@ -100,6 +114,19 @@ impl<'a> canvas::Program<crate::model::editor_message::EditorMessage> for Editor
 
                 let mut y = 0.0;
 
+                // Normalize selection
+                let selection = if let Some(((a_line, a_col), (h_line, h_col))) = self.selection {
+                    let (mut s_line, mut s_col) = (a_line, a_col);
+                    let (mut e_line, mut e_col) = (h_line, h_col);
+                    if (e_line, e_col) < (s_line, s_col) {
+                        std::mem::swap(&mut s_line, &mut e_line);
+                        std::mem::swap(&mut s_col, &mut e_col);
+                    }
+                    Some(((s_line, s_col), (e_line, e_col)))
+                } else {
+                    None
+                };
+
                 for (i, line) in lines.iter().enumerate() {
                     if y > bounds.height + line_height {
                         break;
@@ -118,6 +145,33 @@ impl<'a> canvas::Program<crate::model::editor_message::EditorMessage> for Editor
                         position: iced::Point::new(number_x, y),
                         ..Default::default()
                     });
+
+                    // Selection background for this line
+                    if let Some(((s_line, s_col), (e_line, e_col))) = selection {
+                        if i >= s_line && i <= e_line {
+                            let grapheme_len = line.graphemes(true).count();
+                            let (start_col, end_col) = if s_line == e_line {
+                                (s_col.min(grapheme_len), e_col.min(grapheme_len))
+                            } else if i == s_line {
+                                (s_col.min(grapheme_len), grapheme_len)
+                            } else if i == e_line {
+                                (0, e_col.min(grapheme_len))
+                            } else {
+                                (0, grapheme_len)
+                            };
+                            if end_col > start_col {
+                                let x0 = gutter_width + (start_col as f32) * char_width;
+                                let w = ((end_col - start_col) as f32) * char_width;
+                                let h = line_height;
+                                let color = iced::Color::from_rgba8(100, 150, 255, 0.25);
+                                frame.fill_rectangle(
+                                    iced::Point::new(x0.floor(), y),
+                                    iced::Size::new(w.max(1.0), h),
+                                    color,
+                                );
+                            }
+                        }
+                    }
 
                     let x_text = gutter_width;
                     frame.fill_text(iced::widget::canvas::Text {
@@ -190,9 +244,55 @@ impl<'a> canvas::Program<crate::model::editor_message::EditorMessage> for Editor
                     let column = approx_col.min(grapheme_len);
 
                     state.cache.borrow_mut().clear();
+                    state.dragging.set(true);
                     return (
                         canvas::event::Status::Captured,
-                        Some(EditorMessage::SetCursor { line, column }),
+                        Some(EditorMessage::BeginSelection { line, column }),
+                    );
+                }
+            }
+            canvas::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if state.dragging.get() {
+                    if let Some(p) = cursor.position_in(bounds) {
+                        let line_height = self.font_size * self.spacing;
+                        let char_width = MONO_CHAR_FACTOR * self.font_size;
+
+                        let mut n = self.buffer.get_line_count().max(1);
+                        let mut digit_count = 0usize;
+                        while n > 0 {
+                            digit_count += 1;
+                            n /= 10;
+                        }
+                        let gutter_width = 24.0 + (digit_count as f32) * char_width + 36.0;
+
+                        let mut line = (p.y / line_height).floor().max(0.0) as usize;
+                        let line_count = self.buffer.get_line_count();
+                        if line_count > 0 {
+                            line = line.min(line_count.saturating_sub(1));
+                        } else {
+                            line = 0;
+                        }
+                        let approx_col = ((p.x - gutter_width).max(0.0) / char_width)
+                            .round()
+                            .max(0.0) as usize;
+
+                        let line_text = self.buffer.get_line_content(line + 1);
+                        let grapheme_len = line_text.graphemes(true).count();
+                        let column = approx_col.min(grapheme_len);
+
+                        state.cache.borrow_mut().clear();
+                        return (
+                            canvas::event::Status::Captured,
+                            Some(EditorMessage::ExtendSelectionTo { line, column }),
+                        );
+                    }
+                }
+            }
+            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if state.dragging.replace(false) {
+                    return (
+                        canvas::event::Status::Captured,
+                        Some(EditorMessage::EndSelection),
                     );
                 }
             }
